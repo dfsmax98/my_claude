@@ -1,0 +1,29 @@
+# 信贷数据分析工具依赖包
+# 核心依赖
+pandas>=1.5.0
+numpy>=1.23.0
+matplotlib>=3.6.0
+seaborn>=0.12.0
+scikit-learn>=1.2.0
+
+# 可选依赖（增强功能）
+jupyter>=1.0.0            # Jupyter Notebook支持
+sqlalchemy>=1.4.0         # 数据库连接
+openpyxl>=3.0.0           # Excel文件支持
+xlrd>=2.0.0               # 旧版Excel支持
+plotly>=5.13.0            # 交互式图表
+dash>=2.9.0               # Web仪表板
+
+# 数据库驱动（根据需求选择）
+# pymysql>=1.0.0          # MySQL
+# psycopg2-binary>=2.9.0  # PostgreSQL
+# pyodbc>=4.0.0           # SQL Server
+
+# 大数据处理（可选）
+# dask>=2023.1.0          # 并行计算
+# pyspark>=3.3.0          # Spark集成
+
+# 模型部署（可选）
+# flask>=2.0.0            # Web API
+# joblib>=1.2.0           # 模型序列化
+# pickle-mixin>=1.0.0     # 对象序列化
