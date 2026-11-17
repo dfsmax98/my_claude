@@ -1,0 +1,98 @@
+﻿# 通讯录反欺诈特征配置 - 保守版 (仅使用确认存在的基础字段)
+# 支持: 贷前(preloan) + 贷中(inloan) 双阶段
+
+feature_group: contact_risk_conservative
+
+# 输出表名按stage自动追加后缀
+output_table: d_dq.dfs_contact_risk_conservative
+
+sample_table:
+  preloan: d_dq.dfs_dq_fqz_base_final
+  inloan: d_dq.dfs_dz_fqz_base_final
+  primary_keys:
+    preloan: [cust_no, apply_no]
+    inloan: [cust_no, order_no, trans_seqno, rsk_log_id]
+  time_field:
+    preloan: close_datetime
+    inloan: create_datetime
+  target_fields: [fpd_k30, if_out_30d, if_out_60d, if_in_30d, if_in_60d]
+  partition_field: dt
+
+database:
+  account: model_py
+
+# 数据源: 仅使用基础字段
+data_sources:
+  - name: contacts
+    table: default.t_bd_cust_relation_info
+    join_field: cust_no
+    time_field: create_time
+    partition_field: dt
+    select_fields: [cust_no, contact_phone, create_time, dt]
+    filters:
+      - "contact_phone IS NOT NULL"
+      - "contact_phone != ''"
+  
+  - name: immediate
+    table: default.t_cif_cst_cust_immediate_relation_info
+    join_field: cust_no
+    time_field: create_time
+    partition_field: dt
+    select_fields: [cust_no, contact_phone, create_time, dt]
+    filters:
+      - "contact_phone IS NOT NULL"
+
+# 特征定义 (保守: 仅使用确认存在的基础字段)
+features:
+  # 基础统计
+  - name: contact_total_cnt
+    desc: "通讯录联系人总数"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 365d
+  
+  - name: contact_recent_7d_cnt
+    desc: "近7天新增联系人"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 7d
+  
+  - name: contact_recent_30d_cnt
+    desc: "近30天新增联系人"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 30d
+  
+  - name: immediate_contact_cnt
+    desc: "紧急联系人数量"
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 365d
+  
+  # 时间窗口对比
+  - name: contact_add_ratio_7d_30d
+    desc: "近7天/30天新增占比(突增检测)"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 7d
+  
+  # 复合特征 (基于已聚合特征计算)
+  - name: contact_sudden_add_flag
+    desc: "通讯录突增标识"
+    type: composite
+    logic: "CASE WHEN contact_recent_7d_cnt > 2 * (contact_recent_30d_cnt / 4) AND contact_recent_7d_cnt > 5 THEN 1 ELSE 0 END"
+  
+  - name: contact_active_flag
+    desc: "活跃通讯录标识(近30天有新增)"
+    type: composite
+    logic: "CASE WHEN contact_recent_30d_cnt > 0 THEN 1 ELSE 0 END"
+
+execution:
+  drop_first: true
+  verify: true
+  sample_limit: 20

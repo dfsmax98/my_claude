@@ -1,0 +1,460 @@
+#!/usr/bin/env bash
+#
+# lovtask-push — Create a DevTask through the tooling API
+#
+# Usage:
+#   lovtask-push --project-id <id> --title "<title>" [options]
+#
+# Options:
+#   --description <text>
+#   --criteria <text>          Can be provided multiple times
+#   --priority <low|medium|high>
+#   --type <requirement|bug>
+#   --module <name>
+#   --iteration <name>
+#   --assignee <user-id|username|email>
+#   --visibility <team|private>
+#   --parent-id <task-id>
+#   --blocked-by <task-id>     Can be provided multiple times
+#   --related-to <task-id>     Can be provided multiple times
+#   --duplicates-of <task-id>
+#   --split-from <task-id>
+#
+
+set -euo pipefail
+
+PROJECT_ID=""
+TITLE=""
+DESCRIPTION=""
+PRIORITY="medium"
+TYPE="requirement"
+MODULE=""
+ITERATION=""
+VISIBILITY="team"
+ASSIGNEE=""
+CRITERIA=()
+AUTO_BRANCH_NAME=""
+AUTO_PR_URL=""
+PARENT_ID=""
+BLOCKED_BY=()
+RELATED_TO=()
+DUPLICATES_OF=""
+SPLIT_FROM=""
+
+print_usage() {
+  echo "Usage: lovtask-push --project-id <id> --title \"<title>\" [options]"
+  echo ""
+  echo "Options:"
+  echo "  --description <text>"
+  echo "  --criteria <text>          Can be provided multiple times"
+  echo "  --priority <value>         Default: medium"
+  echo "  --type <value>             Default: requirement"
+  echo "  --module <name>"
+  echo "  --iteration <name>"
+  echo "  --assignee <user-id|username|email>"
+  echo "  --visibility <team|private> Default: team"
+  echo "  --parent-id <task-id>"
+  echo "  --blocked-by <task-id>      Can be provided multiple times"
+  echo "  --related-to <task-id>      Can be provided multiple times"
+  echo "  --duplicates-of <task-id>"
+  echo "  --split-from <task-id>"
+  echo ""
+  echo "Git context:"
+  echo "  In a git repo, the current branch is attached automatically"
+  echo "  If gh is available and gh pr view resolves, the PR URL is attached automatically"
+  echo ""
+  echo "Environment:"
+  echo "  LOVBROWSER_API_URL   Backend API base URL"
+  echo "  LOVBROWSER_API_TOKEN Bearer token for API auth"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project-id)
+      PROJECT_ID="$2"
+      shift 2
+      ;;
+    --title)
+      TITLE="$2"
+      shift 2
+      ;;
+    --description)
+      DESCRIPTION="$2"
+      shift 2
+      ;;
+    --criteria)
+      CRITERIA+=("$2")
+      shift 2
+      ;;
+    --priority)
+      PRIORITY="$2"
+      shift 2
+      ;;
+    --type)
+      TYPE="$2"
+      shift 2
+      ;;
+    --module)
+      MODULE="$2"
+      shift 2
+      ;;
+    --iteration)
+      ITERATION="$2"
+      shift 2
+      ;;
+    --assignee|--assignee-id)
+      ASSIGNEE="$2"
+      shift 2
+      ;;
+    --visibility)
+      VISIBILITY="$2"
+      shift 2
+      ;;
+    --parent-id)
+      PARENT_ID="$2"
+      shift 2
+      ;;
+    --blocked-by)
+      BLOCKED_BY+=("$2")
+      shift 2
+      ;;
+    --related-to)
+      RELATED_TO+=("$2")
+      shift 2
+      ;;
+    --duplicates-of)
+      DUPLICATES_OF="$2"
+      shift 2
+      ;;
+    --split-from)
+      SPLIT_FROM="$2"
+      shift 2
+      ;;
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unexpected argument '$1'" >&2
+      print_usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "Error: --project-id is required" >&2
+  exit 1
+fi
+
+if [[ -z "$TITLE" ]]; then
+  echo "Error: --title is required" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_URL:-}" ]]; then
+  echo "Error: LOVBROWSER_API_URL environment variable is not set" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_TOKEN:-}" ]]; then
+  echo "Error: LOVBROWSER_API_TOKEN environment variable is not set" >&2
+  exit 1
+fi
+
+if [[ -n "$PARENT_ID" && -n "$SPLIT_FROM" ]]; then
+  echo "Error: --parent-id and --split-from are mutually exclusive" >&2
+  exit 2
+fi
+
+validate_task_id() {
+  local label="$1"
+  local value="$2"
+  if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "Error: $label must be a numeric task id (got '$value')" >&2
+    exit 1
+  fi
+}
+
+validate_task_id "--parent-id" "$PARENT_ID"
+validate_task_id "--duplicates-of" "$DUPLICATES_OF"
+validate_task_id "--split-from" "$SPLIT_FROM"
+for _bid in "${BLOCKED_BY[@]+"${BLOCKED_BY[@]}"}"; do
+  validate_task_id "--blocked-by" "$_bid"
+done
+for _rid in "${RELATED_TO[@]+"${RELATED_TO[@]}"}"; do
+  validate_task_id "--related-to" "$_rid"
+done
+
+json_escape() {
+  local value="${1-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  value="${value//$'\f'/\\f}"
+  value="${value//$'\b'/\\b}"
+  printf '%s' "$value"
+}
+
+urlencode() {
+  local value="${1-}"
+  local result=""
+  local char=""
+  local hex=""
+  local i=0
+
+  for (( i=0; i<${#value}; i++ )); do
+    char="${value:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-])
+        result+="$char"
+        ;;
+      ' ')
+        result+="%20"
+        ;;
+      *)
+        printf -v hex '%02X' "'$char"
+        result+="%${hex}"
+        ;;
+    esac
+  done
+
+  printf '%s' "$result"
+}
+
+resolve_assignee_id() {
+  local raw_assignee="${1-}"
+  local lookup_url=""
+  local lookup_response=""
+  local lookup_body=""
+  local lookup_code=""
+  local normalized_query=""
+  local exact_id=""
+
+  if [[ -z "$raw_assignee" ]]; then
+    return 0
+  fi
+
+  if [[ "$raw_assignee" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$raw_assignee"
+    return 0
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: non-numeric --assignee requires jq for user lookup" >&2
+    exit 1
+  fi
+
+  lookup_url="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/assignable-users?keyword=$(urlencode "$raw_assignee")"
+  lookup_response=$(curl -s -w "\n%{http_code}" \
+    -X GET \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+    "$lookup_url" 2>&1) || {
+    echo "Error: failed to resolve assignee" >&2
+    exit 1
+  }
+
+  lookup_body=$(printf '%s\n' "$lookup_response" | sed '$d')
+  lookup_code=$(printf '%s\n' "$lookup_response" | tail -n 1)
+
+  if [[ "$lookup_code" -lt 200 || "$lookup_code" -ge 300 ]]; then
+    echo "Error: assignee lookup returned HTTP $lookup_code" >&2
+    [[ -n "$lookup_body" ]] && echo "$lookup_body" >&2
+    exit 1
+  fi
+
+  normalized_query=$(printf '%s' "$raw_assignee" | tr '[:upper:]' '[:lower:]')
+  exact_id=$(echo "$lookup_body" | jq -r --arg query "$normalized_query" '
+    (.data // .)
+    | map(select(((.username // "") | ascii_downcase) == $query or ((.email // "") | ascii_downcase) == $query))
+    | if length == 1 then .[0].userId else empty end
+  ')
+
+  if [[ -n "$exact_id" ]]; then
+    printf '%s' "$exact_id"
+    return 0
+  fi
+
+  exact_id=$(echo "$lookup_body" | jq -r '
+    (.data // .)
+    | if length == 1 then .[0].userId else empty end
+  ')
+
+  if [[ -z "$exact_id" ]]; then
+    echo "Error: unable to resolve assignee '$raw_assignee'" >&2
+    exit 1
+  fi
+
+  printf '%s' "$exact_id"
+}
+
+build_criteria_json() {
+  local result="["
+  local separator=""
+  local item=""
+
+  for item in "${CRITERIA[@]}"; do
+    result+="${separator}\"$(json_escape "$item")\""
+    separator=","
+  done
+
+  result+="]"
+  printf '%s' "$result"
+}
+
+build_numeric_array_json() {
+  # Usage: build_numeric_array_json "${ARR[@]+"${ARR[@]}"}"
+  local result="["
+  local separator=""
+  local item=""
+
+  for item in "$@"; do
+    result+="${separator}${item}"
+    separator=","
+  done
+
+  result+="]"
+  printf '%s' "$result"
+}
+
+detect_branch_name() {
+  local branch_name=""
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  branch_name="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ -z "$branch_name" || "$branch_name" == "HEAD" ]]; then
+    return 0
+  fi
+
+  printf '%s' "$branch_name"
+}
+
+detect_pr_url() {
+  local pr_url=""
+
+  if ! command -v gh >/dev/null 2>&1; then
+    return 0
+  fi
+
+  pr_url="$(gh pr view --json url --jq .url 2>/dev/null || true)"
+  if [[ -z "$pr_url" ]]; then
+    return 0
+  fi
+
+  printf '%s' "$pr_url"
+}
+
+ASSIGNEE_ID="$(resolve_assignee_id "$ASSIGNEE")"
+CRITERIA_JSON="$(build_criteria_json)"
+AUTO_BRANCH_NAME="$(detect_branch_name)"
+AUTO_PR_URL="$(detect_pr_url)"
+
+FIELDS=()
+FIELDS+=("  \"projectId\": $PROJECT_ID")
+FIELDS+=("  \"title\": \"$(json_escape "$TITLE")\"")
+FIELDS+=("  \"priority\": \"$(json_escape "$PRIORITY")\"")
+FIELDS+=("  \"type\": \"$(json_escape "$TYPE")\"")
+FIELDS+=("  \"visibility\": \"$(json_escape "$VISIBILITY")\"")
+FIELDS+=("  \"criteria\": $CRITERIA_JSON")
+
+if [[ -n "$DESCRIPTION" ]]; then
+  FIELDS+=("  \"description\": \"$(json_escape "$DESCRIPTION")\"")
+fi
+
+if [[ -n "$MODULE" ]]; then
+  FIELDS+=("  \"module\": \"$(json_escape "$MODULE")\"")
+fi
+
+if [[ -n "$ITERATION" ]]; then
+  FIELDS+=("  \"iteration\": \"$(json_escape "$ITERATION")\"")
+fi
+
+if [[ -n "$ASSIGNEE_ID" ]]; then
+  FIELDS+=("  \"assigneeId\": $ASSIGNEE_ID")
+fi
+
+if [[ -n "$AUTO_BRANCH_NAME" ]]; then
+  FIELDS+=("  \"branchName\": \"$(json_escape "$AUTO_BRANCH_NAME")\"")
+fi
+
+if [[ -n "$AUTO_PR_URL" ]]; then
+  FIELDS+=("  \"prUrl\": \"$(json_escape "$AUTO_PR_URL")\"")
+fi
+
+if [[ -n "$PARENT_ID" ]]; then
+  FIELDS+=("  \"parentId\": $PARENT_ID")
+fi
+
+if [[ -n "$DUPLICATES_OF" ]]; then
+  FIELDS+=("  \"duplicatesOf\": $DUPLICATES_OF")
+fi
+
+if [[ -n "$SPLIT_FROM" ]]; then
+  FIELDS+=("  \"splitFrom\": $SPLIT_FROM")
+fi
+
+if (( ${#BLOCKED_BY[@]} > 0 )); then
+  BLOCKED_BY_JSON="$(build_numeric_array_json "${BLOCKED_BY[@]}")"
+  FIELDS+=("  \"blockedBy\": $BLOCKED_BY_JSON")
+fi
+
+if (( ${#RELATED_TO[@]} > 0 )); then
+  RELATED_TO_JSON="$(build_numeric_array_json "${RELATED_TO[@]}")"
+  FIELDS+=("  \"relatedTo\": $RELATED_TO_JSON")
+fi
+
+JSON_BODY=$'{\n'
+for (( i=0; i<${#FIELDS[@]}; i++ )); do
+  JSON_BODY+="${FIELDS[i]}"
+  if (( i < ${#FIELDS[@]} - 1 )); then
+    JSON_BODY+=$',\n'
+  else
+    JSON_BODY+=$'\n'
+  fi
+done
+JSON_BODY+='}'
+
+API_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks"
+
+echo "Creating task in project $PROJECT_ID..."
+
+HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+  -d "$JSON_BODY" \
+  "$API_URL" 2>&1) || {
+  echo "Error: failed to connect to API" >&2
+  exit 1
+}
+
+HTTP_BODY=$(printf '%s\n' "$HTTP_RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s\n' "$HTTP_RESPONSE" | tail -n 1)
+
+if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
+  echo "Error: API returned HTTP $HTTP_CODE" >&2
+  [[ -n "$HTTP_BODY" ]] && echo "$HTTP_BODY" >&2
+  exit 1
+fi
+
+TASK_ID=""
+if command -v jq >/dev/null 2>&1; then
+  TASK_ID=$(echo "$HTTP_BODY" | jq -r '.data.id // .id // ""')
+fi
+
+if [[ -z "$TASK_ID" ]]; then
+  TASK_ID="(unknown)"
+fi
+
+echo "Task $TASK_ID created successfully."
+[[ -n "$HTTP_BODY" ]] && echo "$HTTP_BODY"

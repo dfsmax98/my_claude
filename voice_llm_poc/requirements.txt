@@ -1,0 +1,31 @@
+# 实时语音转写 + LLM 研判 PoC 依赖
+# CPU 即可运行
+
+# --- ASR(本地流式识别)---
+funasr>=1.1.0
+modelscope>=1.9.0
+torch>=2.0.0          # CPU 版即可:pip install torch --index-url https://download.pytorch.org/whl/cpu
+torchaudio>=2.0.0
+
+# --- 音频采集 ---
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# --- LLM 调用 ---
+requests>=2.31.0
+
+# --- 听写交互(全局热键 + 文本注入到光标处)---
+pynput>=1.7.6         # 全局热键 + 模拟键盘
+pyperclip>=1.8.2      # 剪贴板(中文粘贴注入)
+
+# --- 托盘图标(桌面常驻 UI)---
+pystray>=0.19.4
+Pillow>=10.0.0
+
+# --- 网页前端(本地仪表盘)---
+fastapi>=0.110.0
+uvicorn>=0.27.0
+websockets>=12.0
+
+# --- 配置 ---
+python-dotenv>=1.0.0   # 可选:不装也能跑(内置了简易 .env 解析)

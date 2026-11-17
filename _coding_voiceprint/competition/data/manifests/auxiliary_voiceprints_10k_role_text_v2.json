@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-08-22T10:23:26+08:00",
+  "asset_name": "auxiliary_recent_voiceprints_10k_role_text_v2",
+  "copy_mode": "copy_only",
+  "source": "声纹对比/data/recent_voiceprints_10k_role_text_v2",
+  "destination": "data/processed/auxiliary_recent_voiceprints_10k_role_text_v2",
+  "source_batch": {
+    "recording_count": 10000,
+    "role_record_count": 10000,
+    "role_model_version": "role-text-v1-20260820",
+    "role_rule_version": "2026-08-20-text-v1",
+    "role_threshold": 0.817575
+  },
+  "eligible_embeddings": {
+    "record_count": 8301,
+    "identity_count": 6932,
+    "embedding_model": "CAM++",
+    "embedding_model_version": "campp_funasr_ms",
+    "dimension": 192,
+    "dtype": "float32",
+    "l2_normalized": true
+  },
+  "files": [
+    {
+      "name": "customer_embeddings_v2.npz",
+      "bytes": 6676597,
+      "sha256": "e8e476c4ceab8557a26f5b66f3d2fd4bc98fe736f98e076841f3f475157b43c2"
+    },
+    {
+      "name": "processing_summary.json",
+      "bytes": 1037,
+      "sha256": "3ed378c5b5679ee5e174c49f5fabf9eeda94a844c0be19a896d60702f281e728"
+    },
+    {
+      "name": "role_results.json",
+      "bytes": 16385005,
+      "sha256": "2a2b798bafc3a2ac98c64a1e7633103acfc7e1555ebfdc7ebfb11bd3a07b6d04"
+    },
+    {
+      "name": "embedding_failures.json",
+      "bytes": 22,
+      "sha256": "b20e796ad01c2d8947b2bafa988a779aacddd23aa69433dd9e7ba349e5ed559c"
+    },
+    {
+      "name": "role_failures.json",
+      "bytes": 22,
+      "sha256": "b20e796ad01c2d8947b2bafa988a779aacddd23aa69433dd9e7ba349e5ed559c"
+    }
+  ],
+  "validation": {
+    "source_target_sha256_match": true,
+    "aggregate_record_count": 8301,
+    "source_shard_count": 8301,
+    "missing_shards": 0,
+    "mismatched_shards": 0,
+    "extra_shards": 0,
+    "finite_embeddings": true,
+    "norm_min": 0.9999998807907104,
+    "norm_max": 1.0000001192092896
+  },
+  "usage_policy": {
+    "allowed": [
+      "PLDA训练候选",
+      "AS-Norm背景库候选",
+      "embedding质量模型训练候选"
+    ],
+    "required": [
+      "使用identity_sha256排除与验证集和测试集重叠的身份",
+      "训练、校准和评估按身份隔离",
+      "只使用formal_eligible筛选后的聚合embedding"
+    ],
+    "forbidden": [
+      "直接并入正式客户声纹库",
+      "直接并入黑产声纹库",
+      "提交普通Git或在报告中暴露身份明细"
+    ]
+  }
+}

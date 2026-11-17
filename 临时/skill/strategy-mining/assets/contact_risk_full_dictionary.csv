@@ -1,0 +1,16 @@
+﻿feature_name,feature_desc,feature_type,time_window
+contact_total_cnt,通讯录联系人总数,int,365d
+contact_family_cnt,家庭关系联系人数量,int,365d
+contact_friend_cnt,朋友关系联系人数量,int,365d
+contact_colleague_cnt,同事关系联系人数量,int,365d
+immediate_contact_cnt,紧急联系人数量,int,365d
+black_contact_cnt,黑名单联系人数量,int,365d
+overdue_contact_cnt,逾期联系人数量,int,365d
+complaint_contact_cnt,投诉联系人数量,int,365d
+collection_contact_cnt,被催收联系人数量,int,365d
+contact_recent_7d_cnt,近7天新增联系人,int,7d
+contact_recent_30d_cnt,近30天新增联系人,int,30d
+contact_recent_90d_cnt,近90天新增联系人,int,90d
+contact_valid_ratio,有效手机号占比,int,365d
+contact_high_risk_flag,高风险通讯录标识,composite,-
+contact_risk_score_simple,简单通讯录风险评分,composite,-

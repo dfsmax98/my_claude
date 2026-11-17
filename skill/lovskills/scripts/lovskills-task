@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# lovskills-task — Route DevTask subcommands to lovtask scripts
+#
+# Usage:
+#   lovskills-task pull [args...]
+#   lovskills-task start <id> [args...]
+#   lovskills-task done <id> [args...]
+#   lovskills-task claim [args...]
+#
+
+set -euo pipefail
+
+print_usage() {
+  cat <<'EOF'
+Usage: lovskills-task <subcommand> [args...]
+
+Manage DevTasks through lovtask scripts.
+
+Subcommands:
+  pull     List my tasks
+  start    Start a task
+  done     Complete a task
+  claim    Claim a task from the pool
+  push     Push a new requirement
+
+Run 'lovskills-task <subcommand> --help' for subcommand-specific help.
+
+Environment:
+  LOVBROWSER_API_URL     Backend API base URL
+  LOVBROWSER_API_TOKEN   Bearer token for API auth
+EOF
+}
+
+find_lovtask_script() {
+  local subcmd="$1"
+  local script_dir
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+  # Sibling skill in repo
+  local sibling="$script_dir/../../lovtask/scripts/lovtask-${subcmd}"
+  if [[ -x "$sibling" ]]; then
+    printf '%s' "$sibling"
+    return 0
+  fi
+
+  # User-level skill directories
+  local user_dirs=(
+    "$HOME/.claude/skills/lovtask/scripts/lovtask-${subcmd}"
+    "$HOME/.codex/skills/lovtask/scripts/lovtask-${subcmd}"
+  )
+  for candidate in "${user_dirs[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if [[ $# -eq 0 ]]; then
+  print_usage
+  exit 1
+fi
+
+SUBCOMMAND="$1"
+shift
+
+case "$SUBCOMMAND" in
+  pull|start|done|claim|push)
+    SCRIPT=$(find_lovtask_script "$SUBCOMMAND") || {
+      echo "Error: lovtask-${SUBCOMMAND} script not found. Install lovtask skill." >&2
+      exit 1
+    }
+    exec "$SCRIPT" "$@"
+    ;;
+  -h|--help)
+    print_usage
+    exit 0
+    ;;
+  *)
+    echo "Error: unknown subcommand '$SUBCOMMAND'" >&2
+    print_usage >&2
+    exit 1
+    ;;
+esac

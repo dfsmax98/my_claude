@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat >&2 <<'EOF'
+Error: lovskills search is intentionally disabled in isolated LovSkills.
+LovSkills must not call Browser Bridge browser-search endpoints.
+Add a LovSkills-native /api/lovskills search endpoint before enabling this command.
+EOF
+exit 2

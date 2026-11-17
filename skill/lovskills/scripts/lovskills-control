@@ -1,0 +1,722 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Callable, Optional, Tuple
+from urllib.parse import quote, urlencode, urljoin
+
+
+DEFAULT_LOCAL_URL = "http://127.0.0.1:18007"
+DEFAULT_AUTH_FILE = Path.home() / ".codex" / "lovskills" / "auth.json"
+DEFAULT_SCOPES = [
+    "points:read",
+    "lovapi.balance:read",
+    "tokens:export",
+    "browser.chat:launch",
+    "tooling.setup:write",
+    "ai.create",
+]
+IMAGE_MODEL_OPTIONS = ["gpt-image-2", "gpt-image-1"]
+IMAGE_SIZE_OPTIONS = ["1024x1024", "1536x1024", "1024x1536", "auto"]
+IMAGE_RESOLUTION_OPTIONS = ["1K", "2K", "4K"]
+VIDEO_MODEL_OPTIONS = ["seedance-2.0"]
+VIDEO_RATIO_OPTIONS = ["16:9", "9:16", "1:1", "4:3", "3:4"]
+VIDEO_RESOLUTION_OPTIONS = ["720p", "1080p"]
+VIDEO_DURATION_OPTIONS = ["5", "10"]
+SETUP_MODEL_OPTIONS = {
+    "codex": ["gpt-5.3-codex", "gpt-5.4", "gpt-5.5"],
+    "claude": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5"],
+}
+SENSITIVE_MARKERS = (
+    "authorization",
+    "bearer",
+    "cookie",
+    "set-cookie",
+    "jwt",
+    "refresh_token",
+    "refresh token",
+    "access_token",
+    "access token",
+    "api_key",
+    "apikey",
+    '"key"',
+    "secret",
+)
+
+
+class LovSkillsError(Exception):
+    pass
+
+
+def local_url() -> str:
+    return (os.environ.get("LOVSKILLS_LOCAL_URL") or DEFAULT_LOCAL_URL).rstrip("/")
+
+
+def auth_file() -> Path:
+    return Path(os.environ.get("LOVSKILLS_AUTH_FILE") or DEFAULT_AUTH_FILE).expanduser()
+
+
+def default_token_key_file() -> Path:
+    return Path.home() / "Downloads" / "lovskills" / "key.txt"
+
+
+def die(message: str, code: int = 1) -> None:
+    print(f"Error: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def is_tty() -> bool:
+    return sys.stdin.isatty()
+
+
+def require_explicit(value: Optional[str], name: str, choices: list[str]) -> str:
+    normalized = str(value or "").strip()
+    if normalized:
+        return normalized
+    if not is_tty():
+        raise LovSkillsError(f"Missing required parameter: {name}. Re-run with --{name.replace('_', '-')}.")
+    return select_option(name, choices)
+
+
+def require_one_of(
+    value: Optional[str],
+    alternate: Optional[str],
+    display_name: str,
+    choices: list[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    first = str(value or "").strip()
+    second = str(alternate or "").strip()
+    if first or second:
+        return first or None, second or None
+    if not is_tty():
+        raise LovSkillsError(f"Missing required parameter: {display_name}. Re-run with one of the listed options.")
+    return None, select_option(display_name, choices)
+
+
+def select_option(name: str, choices: list[str], label: Optional[Callable[[str], str]] = None) -> str:
+    if not choices:
+        raise LovSkillsError(f"No selectable options are available for {name}.")
+    print(f"Select {name}:", file=sys.stderr)
+    for index, choice in enumerate(choices, start=1):
+        shown = label(choice) if label else choice
+        print(f"  {index}. {shown}", file=sys.stderr)
+    selected = input(f"{name}: ").strip()
+    try:
+        return choices[int(selected) - 1]
+    except Exception as exc:
+        raise LovSkillsError(f"Invalid {name} selection") from exc
+
+
+def format_usd(value) -> str:
+    try:
+        amount = Decimal(str(value if value is not None else "0"))
+    except (InvalidOperation, ValueError):
+        amount = Decimal("0")
+    amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"${amount}"
+
+
+def fail_missing_parameters(names: list[str]) -> None:
+    if names and not is_tty():
+        raise LovSkillsError("Missing required parameters: " + ", ".join(names))
+
+
+def safe_error_message(raw: str, fallback: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return fallback
+    if any(marker in text.lower() for marker in SENSITIVE_MARKERS):
+        return fallback
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return text[:240]
+    message = payload.get("message") or payload.get("msg")
+    error = payload.get("error")
+    if not message and isinstance(error, dict):
+        message = error.get("message")
+    elif not message and isinstance(error, str):
+        message = error
+    message = str(message or fallback)
+    if any(marker in message.lower() for marker in SENSITIVE_MARKERS):
+        return fallback
+    return message[:240]
+
+
+def curl_json(
+    method: str,
+    path: str,
+    *,
+    token: Optional[str] = None,
+    body=None,
+    fallback: str,
+    expect_json: bool = True,
+):
+    url = f"{local_url()}{path}"
+    args = ["curl", "-sS", "-K", "-", "-w", "\n%{http_code}"]
+    config = ['header = "Content-Type: application/json"']
+    if token:
+        config.append(f'header = "Authorization: Bearer {token}"')
+    if method.upper() != "GET":
+        args.extend(["-X", method.upper()])
+        if body is not None:
+            args.extend(["--data", json.dumps(body, ensure_ascii=False, separators=(",", ":"))])
+    args.append(url)
+    try:
+        proc = subprocess.run(
+            args,
+            input="\n".join(config) + "\n",
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise LovSkillsError("curl is required") from exc
+    if proc.returncode != 0:
+        raise LovSkillsError(
+            "LovBrowser desktop client is not running. Open and sign in to LovBrowser, then run 'lovskills login'."
+        )
+    if "\n" not in proc.stdout:
+        raise LovSkillsError("LovBrowser desktop client returned an invalid response")
+    raw_body, raw_code = proc.stdout.rsplit("\n", 1)
+    try:
+        code = int(raw_code.strip())
+    except ValueError:
+        raise LovSkillsError("LovBrowser desktop client returned an invalid status")
+    if code < 200 or code >= 300:
+        raise LovSkillsError(safe_error_message(raw_body, fallback))
+    if not expect_json:
+        return raw_body
+    try:
+        return json.loads(raw_body or "{}")
+    except json.JSONDecodeError as exc:
+        raise LovSkillsError(fallback) from exc
+
+
+def write_auth(payload: dict) -> None:
+    token = str(payload.get("token") or "").strip()
+    scopes = payload.get("scopes") or []
+    if not token:
+        raise LovSkillsError("LovBrowser did not return a LovSkills token")
+    path = auth_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "token": token,
+                "localUrl": local_url(),
+                "scopes": scopes,
+                "createdAt": int(time.time()),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def load_auth(required_scope: Optional[str] = None) -> dict:
+    path = auth_file()
+    if not path.exists():
+        raise LovSkillsError(
+            "LovSkills is not authorized. Run 'lovskills login' after opening and signing in to LovBrowser desktop."
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise LovSkillsError("LovSkills auth file is invalid. Run 'lovskills login' again.") from exc
+    token = str(payload.get("token") or "").strip()
+    scopes = payload.get("scopes") or []
+    if not token or (required_scope and required_scope not in scopes):
+        raise LovSkillsError("LovSkills authorization is missing required scope. Run 'lovskills login' again.")
+    if not os.environ.get("LOVSKILLS_LOCAL_URL"):
+        saved_local_url = str(payload.get("localUrl") or "").strip()
+        if saved_local_url:
+            os.environ["LOVSKILLS_LOCAL_URL"] = saved_local_url
+    return payload
+
+
+def authed_request(method: str, path: str, scope: str, *, body=None, fallback: str):
+    auth = load_auth(scope)
+    return curl_json(method, path, token=auth["token"], body=body, fallback=fallback)
+
+
+def command_login(args):
+    if args.local_url:
+        os.environ["LOVSKILLS_LOCAL_URL"] = args.local_url.rstrip("/")
+    payload = curl_json("POST", "/api/lovskills/authorize", body={}, fallback="LovSkills 授权失败")
+    scopes = payload.get("scopes") or []
+    missing = [scope for scope in DEFAULT_SCOPES if scope not in scopes]
+    if missing:
+        raise LovSkillsError(f"LovBrowser returned an incomplete LovSkills grant: {', '.join(missing)}")
+    write_auth(payload)
+    print("LovSkills authorized: " + " ".join(scopes))
+
+
+def command_doctor(_args):
+    curl_json("GET", "/health", fallback="LovBrowser local health check failed", expect_json=False)
+    auth = load_auth(None)
+    scopes = auth.get("scopes") or []
+    authed_request("GET", "/api/lovskills/points/account", "points:read", fallback="LovSkills auth check failed")
+    print("LovBrowser local: OK")
+    print("LovSkills auth: OK")
+    print("Scopes: " + " ".join(scopes))
+
+
+def command_points(args):
+    payload = authed_request("GET", "/api/lovskills/points/account", "points:read", fallback="积分余额查询失败")
+    data = payload.get("data") or {}
+    safe = {key: data[key] for key in ("balancePoints", "totalTopupPoints", "totalManualAdjustPoints", "updatedTime") if key in data}
+    safe.setdefault("balancePoints", 0)
+    if args.json:
+        print(json.dumps(safe, ensure_ascii=False, indent=2))
+    else:
+        print(safe["balancePoints"])
+
+
+def command_balance_usd(args):
+    payload = authed_request(
+        "GET",
+        "/api/lovskills/lov-api/balance",
+        "lovapi.balance:read",
+        fallback="Lov API 美元余额查询失败",
+    )
+    data = payload.get("data") or {}
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    if args.detail:
+        print(f"availableUsd: {format_usd(data.get('availableUsd'))}")
+        print(f"totalUsd: {format_usd(data.get('totalUsd'))}")
+        print(f"usedUsd: {format_usd(data.get('usedUsd'))}")
+        print(f"availableQuota: {data.get('availableQuota', 0)}")
+        print(f"totalQuota: {data.get('totalQuota', 0)}")
+        print(f"usedQuota: {data.get('usedQuota', 0)}")
+        print(f"quotaPerUnit: {data.get('quotaPerUnit', 0)}")
+        return
+    print(format_usd(data.get("availableUsd")))
+
+
+def command_tokens(args):
+    payload = authed_request("GET", "/api/lovskills/lov-api/tokens", "tokens:export", fallback="Lov API token 查询失败")
+    tokens = payload.get("data") or []
+    if args.names:
+        for item in tokens:
+            print(item.get("name") or "")
+        return
+    export_path = export_token_keys(tokens, args.out)
+    summaries = [token_summary(item) for item in tokens]
+    if args.json:
+        print(json.dumps({"exportPath": str(export_path), "tokens": summaries}, ensure_ascii=False, indent=2))
+        return
+    print(export_path)
+
+
+def token_summary(item: dict) -> dict:
+    safe = {}
+    for key in ("id", "name", "status", "unlimitedQuota", "remainQuota", "usedQuota", "createdAt", "maskedKey"):
+        if key in item:
+            safe[key] = item[key]
+    safe["hasKey"] = bool(item.get("key") or item.get("apiKey"))
+    return safe
+
+
+def export_token_keys(tokens: list[dict], out: Optional[str]) -> Path:
+    target = Path(out).expanduser() if out else default_token_key_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["name\tkey"]
+    for item in tokens:
+        key = str(item.get("key") or item.get("apiKey") or "").strip()
+        if not key:
+            continue
+        name = str(item.get("name") or f"token-{item.get('id', '')}").replace("\t", " ").strip()
+        lines.append(f"{name}\t{key}")
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        os.chmod(target, 0o600)
+    except OSError:
+        pass
+    return target
+
+
+def chat_accounts(provider: Optional[str]):
+    query = f"?{urlencode({'provider': provider})}" if provider else ""
+    payload = authed_request(
+        "GET",
+        f"/api/lovskills/chat/accounts{query}",
+        "browser.chat:launch",
+        fallback="AI 账号查询失败",
+    )
+    return payload.get("data") or []
+
+
+def command_chat_accounts(args):
+    accounts = chat_accounts(args.provider)
+    if args.json:
+        print(json.dumps(accounts, ensure_ascii=False, indent=2))
+        return
+    for item in accounts:
+        print(f"{item.get('accountKey','')}\t{item.get('provider','')}\t{item.get('label','')}")
+
+
+def select_chat_account(args):
+    if args.account_key:
+        return args.account_key
+    accounts = chat_accounts(args.provider)
+    if not accounts:
+        raise LovSkillsError("No AI chat accounts are available for the current LovBrowser user.")
+    if len(accounts) == 1:
+        return accounts[0].get("accountKey")
+    if not sys.stdin.isatty():
+        raise LovSkillsError("Multiple AI accounts found. Re-run with --account-key.")
+    print("Select AI account:", file=sys.stderr)
+    for index, item in enumerate(accounts, start=1):
+        print(f"  {index}. {item.get('provider')}  {item.get('label')}  {item.get('accountKey')}", file=sys.stderr)
+    choice = input("Account number: ").strip()
+    try:
+        selected = accounts[int(choice) - 1]
+    except Exception as exc:
+        raise LovSkillsError("Invalid account selection") from exc
+    return selected.get("accountKey")
+
+
+def command_chat_launch(args):
+    account_key = select_chat_account(args)
+    if not account_key:
+        raise LovSkillsError("Selected AI account is missing accountKey.")
+    body = {"accountKey": account_key}
+    if args.provider:
+        body["provider"] = args.provider
+    payload = authed_request(
+        "POST",
+        "/api/lovskills/chat/launch",
+        "browser.chat:launch",
+        body=body,
+        fallback="AI 聊天窗口启动失败",
+    )
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    data = payload.get("data") or {}
+    print(f"Launched {data.get('browser_id') or data.get('browserId') or ''} pid={data.get('pid','')}")
+
+
+def setup_model(args) -> str:
+    model = str(args.model or "").strip()
+    if model:
+        return model
+    choices = SETUP_MODEL_OPTIONS.get(args.tool, [])
+    if not is_tty():
+        raise LovSkillsError("Missing required parameter: model. Re-run with --model.")
+    return select_option("model", choices)
+
+
+def setup_token_id(args) -> Optional[int]:
+    if args.token_id is not None:
+        return args.token_id
+    payload = authed_request(
+        "GET",
+        "/api/lovskills/lov-api/tokens",
+        "tokens:export",
+        fallback="Lov API token 查询失败",
+    )
+    tokens = payload.get("data") or []
+    selectable = [item for item in tokens if item.get("id") is not None]
+    if not selectable:
+        raise LovSkillsError("No Lov API tokens are available for setup.")
+    if len(selectable) == 1:
+        return int(selectable[0]["id"])
+    if not is_tty():
+        raise LovSkillsError("Multiple Lov API tokens found. Re-run with --token-id.")
+    labels = [
+        f"{item.get('id')}  {item.get('name') or 'unnamed'}"
+        for item in selectable
+    ]
+    choice = select_option("token", labels)
+    return int(choice.split(" ", 1)[0])
+
+
+def command_setup(args):
+    model = setup_model(args)
+    token_id = setup_token_id(args)
+    body = {
+        "tool": args.tool,
+        "fullPermissions": bool(args.full_permissions),
+        "dryRun": bool(args.dry_run),
+        "model": model,
+    }
+    if token_id is not None:
+        body["tokenId"] = token_id
+    payload = authed_request(
+        "POST",
+        "/api/lovskills/tooling/setup",
+        "tooling.setup:write",
+        body=body,
+        fallback=f"{args.tool} 初始化失败",
+    )
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    print(f"{args.tool} setup: {'OK' if payload.get('success') else 'FAILED'}")
+    for phase in payload.get("phases") or []:
+        result = phase.get("result") or {}
+        status = phase.get("status") or ("success" if result.get("success") else "failed")
+        print(f"{phase.get('phase')}: {status}")
+
+
+def resolve_response_url(raw_url: str) -> str:
+    if raw_url.startswith(("http://", "https://", "data:")):
+        return raw_url
+    return urljoin(local_url() + "/", raw_url)
+
+
+def save_image_if_requested(payload: dict, out_dir: Optional[str]):
+    data = payload.get("data") or []
+    first = data[0] if data else {}
+    image_url = first.get("url")
+    b64 = first.get("b64_json")
+    if not out_dir:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    target_dir = Path(out_dir).expanduser()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"image-{time.strftime('%Y%m%d-%H%M%S')}.png"
+    if image_url:
+        resolved = resolve_response_url(image_url)
+        if resolved.startswith("data:") and ";base64," in resolved:
+            target.write_bytes(base64.b64decode(resolved.split(",", 1)[1]))
+        else:
+            subprocess.run(["curl", "-fsS", "-o", str(target), resolved], check=True)
+        print(target)
+        return
+    if b64:
+        target.write_bytes(base64.b64decode(b64))
+        print(target)
+        return
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def task_payload_data(payload: dict) -> dict:
+    data = payload.get("data")
+    return data if isinstance(data, dict) else payload
+
+
+def print_task_summary(payload: dict) -> None:
+    data = task_payload_data(payload)
+    task_id = data.get("taskId") or data.get("task_id") or data.get("id")
+    task_no = data.get("taskNo") or data.get("task_no")
+    status = data.get("status")
+    parts = []
+    if task_id is not None:
+        parts.append(f"taskId={task_id}")
+    if task_no:
+        parts.append(f"taskNo={task_no}")
+    if status:
+        parts.append(f"status={status}")
+    if parts:
+        print(" ".join(parts))
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def command_image(args):
+    fail_missing_parameters([
+        name for name, missing in [
+            ("--model", not str(args.model or "").strip()),
+            ("--aspect-ratio or --size", not str(args.aspect_ratio or "").strip() and not str(args.size or "").strip()),
+            ("--resolution", not str(args.resolution or "").strip()),
+        ] if missing
+    ])
+    model = require_explicit(args.model, "model", IMAGE_MODEL_OPTIONS)
+    aspect_ratio, size = require_one_of(
+        args.aspect_ratio,
+        args.size,
+        "aspect-ratio-or-size",
+        IMAGE_SIZE_OPTIONS,
+    )
+    resolution = require_explicit(args.resolution, "resolution", IMAGE_RESOLUTION_OPTIONS)
+    body = {"prompt": args.prompt, "model": model, "resolution": resolution, "n": 1}
+    if aspect_ratio:
+        body["aspect_ratio"] = aspect_ratio
+    if size:
+        body["size"] = size
+    payload = authed_request("POST", "/api/lovskills/ai/images", "ai.create", body=body, fallback="图片生成失败")
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print_task_summary(payload)
+
+
+def extract_video_status(payload: dict) -> Tuple[Optional[str], str]:
+    data = task_payload_data(payload)
+    task_id = data.get("id") or data.get("taskId") or data.get("task_id")
+    status = data.get("status") or "unknown"
+    return task_id, status
+
+
+def command_video(args):
+    fail_missing_parameters([
+        name for name, missing in [
+            ("--model", not str(args.model or "").strip()),
+            ("--aspect-ratio or --ratio", not str(args.aspect_ratio or "").strip() and not str(args.ratio or "").strip()),
+            ("--resolution", not str(args.resolution or "").strip()),
+            ("--duration", args.duration is None),
+        ] if missing
+    ])
+    model = require_explicit(args.model, "model", VIDEO_MODEL_OPTIONS)
+    aspect_ratio, ratio = require_one_of(
+        args.aspect_ratio,
+        args.ratio,
+        "aspect-ratio-or-ratio",
+        VIDEO_RATIO_OPTIONS,
+    )
+    resolution = require_explicit(args.resolution, "resolution", VIDEO_RESOLUTION_OPTIONS)
+    if args.duration is None:
+        if not is_tty():
+            raise LovSkillsError("Missing required parameter: duration. Re-run with --duration.")
+        duration = int(select_option("duration", VIDEO_DURATION_OPTIONS))
+    else:
+        duration = args.duration
+    body = {
+        "prompt": args.prompt,
+        "model": model,
+        "resolution": resolution,
+        "duration": duration,
+        "generate_audio": not args.no_generate_audio,
+    }
+    if aspect_ratio:
+        body["aspect_ratio"] = aspect_ratio
+    if ratio:
+        body["ratio"] = ratio
+    payload = authed_request("POST", "/api/lovskills/ai/video/tasks", "ai.create", body=body, fallback="视频任务创建失败")
+    task_id, status = extract_video_status(payload)
+    if not args.wait or not task_id:
+        if args.wait:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print_task_summary(payload)
+        return
+    started = time.time()
+    latest = payload
+    while time.time() - started < args.timeout:
+        time.sleep(args.poll_interval)
+        latest = authed_request(
+            "GET",
+            f"/api/lovskills/ai/video/tasks/{quote(str(task_id), safe='')}",
+            "ai.create",
+            fallback="视频任务查询失败",
+        )
+        _, status = extract_video_status(latest)
+        print(f"status: {status}", file=sys.stderr)
+        normalized_status = str(status).lower()
+        if normalized_status in {"completed", "succeeded", "success"}:
+            print(json.dumps(latest, ensure_ascii=False, indent=2))
+            return
+        if normalized_status in {"failed", "error", "cancelled", "canceled"}:
+            print(json.dumps(latest, ensure_ascii=False, indent=2), file=sys.stderr)
+            raise SystemExit(1)
+    raise LovSkillsError(f"Video task timed out after {args.timeout}s (last status: {status})")
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="lovskills")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    login = sub.add_parser("login")
+    login.add_argument("--local-url")
+    login.set_defaults(func=command_login)
+
+    doctor = sub.add_parser("doctor")
+    doctor.set_defaults(func=command_doctor)
+
+    points = sub.add_parser("points")
+    points_sub = points.add_subparsers(dest="points_command", required=True)
+    balance = points_sub.add_parser("balance")
+    balance.add_argument("--json", action="store_true")
+    balance.set_defaults(func=command_points)
+
+    balance = sub.add_parser("balance")
+    balance_sub = balance.add_subparsers(dest="balance_command", required=True)
+    usd = balance_sub.add_parser("usd")
+    usd.add_argument("--detail", action="store_true")
+    usd.add_argument("--json", action="store_true")
+    usd.set_defaults(func=command_balance_usd)
+
+    tokens = sub.add_parser("tokens")
+    tokens_sub = tokens.add_subparsers(dest="tokens_command", required=True)
+    tokens_list = tokens_sub.add_parser("list")
+    tokens_list.add_argument("--json", action="store_true")
+    tokens_list.add_argument("--names", action="store_true")
+    tokens_list.add_argument("--out")
+    tokens_list.set_defaults(func=command_tokens)
+
+    chat = sub.add_parser("chat")
+    chat_sub = chat.add_subparsers(dest="chat_command", required=True)
+    accounts = chat_sub.add_parser("accounts")
+    accounts.add_argument("--provider", choices=["chatgpt", "gemini", "claude"])
+    accounts.add_argument("--json", action="store_true")
+    accounts.set_defaults(func=command_chat_accounts)
+    launch = chat_sub.add_parser("launch")
+    launch.add_argument("--provider", choices=["chatgpt", "gemini", "claude"])
+    launch.add_argument("--account-key")
+    launch.add_argument("--json", action="store_true")
+    launch.set_defaults(func=command_chat_launch)
+
+    setup = sub.add_parser("setup")
+    setup.add_argument("tool", choices=["codex", "claude"])
+    setup.add_argument("--token-id", type=int)
+    setup.add_argument("--model")
+    setup.add_argument("--full-permissions", action="store_true")
+    setup.add_argument("--dry-run", action="store_true")
+    setup.add_argument("--json", action="store_true")
+    setup.set_defaults(func=command_setup)
+
+    image = sub.add_parser("image")
+    image.add_argument("prompt")
+    image.add_argument("--model")
+    image.add_argument("--aspect-ratio")
+    image.add_argument("--size")
+    image.add_argument("--resolution")
+    image.add_argument("--out")
+    image.add_argument("--json", action="store_true")
+    image.set_defaults(func=command_image)
+
+    video = sub.add_parser("video")
+    video.add_argument("prompt")
+    video.add_argument("--model")
+    video.add_argument("--aspect-ratio")
+    video.add_argument("--ratio")
+    video.add_argument("--resolution")
+    video.add_argument("--duration", type=int)
+    video.add_argument("--no-generate-audio", action="store_true")
+    video.add_argument("--wait", action="store_true")
+    video.add_argument("--poll-interval", type=int, default=10)
+    video.add_argument("--timeout", type=int, default=600)
+    video.set_defaults(func=command_video)
+
+    return parser
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        args.func(args)
+    except LovSkillsError as exc:
+        die(str(exc))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,705 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import binascii
+import json
+import mimetypes
+import os
+import re
+import shutil
+import socket
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+DEFAULT_BASE_URL = "http://127.0.0.1:18007"
+DEFAULT_TOKEN_FILE = "~/.codex/lovbrowser-bridge/token.json"
+MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024
+
+
+class BridgeError(Exception):
+    pass
+
+
+def base_url():
+    return (os.environ.get("LOVBROWSER_BRIDGE_URL") or DEFAULT_BASE_URL).rstrip("/")
+
+
+def token_file():
+    return Path(os.environ.get("LOVBROWSER_BRIDGE_TOKEN_FILE", DEFAULT_TOKEN_FILE)).expanduser()
+
+
+def read_saved_token():
+    path = token_file()
+    if not path.exists():
+        return ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(payload.get("token") or "").strip()
+
+
+def save_token(value):
+    path = token_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"token": value}, ensure_ascii=False), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def clear_saved_token():
+    try:
+        token_file().unlink()
+    except FileNotFoundError:
+        pass
+
+
+def token(required=True):
+    value = read_saved_token()
+    if required and not value:
+        raise BridgeError(
+            "No local Bridge token was found. Open and sign in to LovBrowser desktop once so it can auto-install skills and write the token file. Fallback: lovbridge token bind <token>"
+        )
+    return value
+
+
+def bind_token_to_bridge(value=None):
+    value = (value or token()).strip()
+    if not value:
+        raise BridgeError("token is required")
+    request_json(
+        "POST",
+        "/api/bridge/devtask-token/bind",
+        {"token": value},
+        require_auth=False,
+        timeout=10,
+    )
+
+
+def try_bind_token_to_bridge():
+    value = token(required=False)
+    if not value:
+        return
+    try:
+        bind_token_to_bridge(value)
+    except BridgeError:
+        # Older LovBrowser clients do not expose the HTTP bind endpoint.
+        # Keep going: auth can still pass if the token was already bound by the UI.
+        pass
+
+
+def request_json(method, path, body=None, require_auth=True, timeout=240):
+    data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if require_auth:
+        headers["Authorization"] = f"Bearer {token()}"
+    req = urllib.request.Request(
+        f"{base_url()}{path}",
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            if not raw:
+                return {}
+            return json.loads(raw.decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(raw)
+            message = payload.get("error", {}).get("message") or payload.get("message") or raw
+            code = payload.get("error", {}).get("code")
+            if code:
+                raise BridgeError(f"{code}: {message}") from exc
+            raise BridgeError(message) from exc
+        except json.JSONDecodeError:
+            raise BridgeError(f"HTTP {exc.code}: {raw}") from exc
+    except urllib.error.URLError as exc:
+        raise BridgeError(f"Cannot connect to LovBrowser Bridge at {base_url()}: {exc.reason}") from exc
+    except (TimeoutError, socket.timeout) as exc:
+        raise BridgeError(f"LovBrowser Bridge request timed out: {path}") from exc
+
+
+def request_bytes(url, require_auth=False, timeout=120):
+    headers = {}
+    if require_auth:
+        headers["Authorization"] = f"Bearer {token()}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read(), resp.headers.get("Content-Type", "application/octet-stream")
+    except (TimeoutError, socket.timeout) as exc:
+        raise BridgeError(f"LovBrowser Bridge asset download timed out: {url}") from exc
+
+
+def normalize_mime(value, fallback="application/octet-stream"):
+    mime = (value or fallback or "application/octet-stream").split(";")[0].strip().lower()
+    return mime or fallback
+
+
+def data_url_from_image_arg(value):
+    source = (value or "").strip()
+    if not source:
+        raise BridgeError("--image requires a non-empty path or URL")
+    if source.startswith("data:image/") and ";base64," in source:
+        payload = source.split(",", 1)[1]
+        try:
+            decoded_size = len(base64.b64decode(payload, validate=True))
+        except (ValueError, binascii.Error) as exc:
+            raise BridgeError("--image data URL contains invalid base64") from exc
+        if decoded_size > MAX_REFERENCE_IMAGE_BYTES:
+            raise BridgeError("--image reference exceeds 20MB")
+        return source
+
+    parsed = urllib.parse.urlparse(source)
+    if parsed.scheme in ("http", "https"):
+        payload_bytes, mime = request_reference_image_url(source)
+    elif parsed.scheme:
+        raise BridgeError("--image only supports local paths, data:image URLs, or http(s) URLs")
+    else:
+        path = Path(source).expanduser()
+        if not path.exists() or not path.is_file():
+            raise BridgeError(f"--image file does not exist: {source}")
+        payload_bytes = path.read_bytes()
+        mime = mimetypes.guess_type(str(path))[0] or "image/png"
+
+    mime = normalize_mime(mime, "image/png")
+    if not mime.startswith("image/"):
+        raise BridgeError(f"--image source is not an image: {mime}")
+    if len(payload_bytes) > MAX_REFERENCE_IMAGE_BYTES:
+        raise BridgeError("--image reference exceeds 20MB")
+    return f"data:{mime};base64,{base64.b64encode(payload_bytes).decode('ascii')}"
+
+
+def request_reference_image_url(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "lovbrowser-bridge-cli/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            payload = resp.read(MAX_REFERENCE_IMAGE_BYTES + 1)
+            mime = resp.headers.get("Content-Type")
+            if not mime:
+                mime = mimetypes.guess_type(urllib.parse.urlparse(url).path)[0] or "image/png"
+            return payload, mime
+    except urllib.error.HTTPError as exc:
+        raise BridgeError(f"--image URL returned HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise BridgeError(f"Cannot download --image URL: {exc.reason}") from exc
+    except (TimeoutError, socket.timeout) as exc:
+        raise BridgeError("--image URL download timed out") from exc
+
+
+def image_urls_payload(args):
+    return [data_url_from_image_arg(value) for value in (getattr(args, "image", None) or [])]
+
+
+def ensure(provider, capability, account_key=None):
+    body = {"provider": provider, "capability": capability}
+    if account_key:
+        body["accountKey"] = account_key
+    return request_json(
+        "POST",
+        "/api/bridge/ensure",
+        body,
+        require_auth=True,
+        timeout=180,
+    )
+
+
+def bridge_accounts(provider=None):
+    query = f"?provider={urllib.parse.quote(provider)}" if provider else ""
+    response = request_json("GET", f"/api/bridge/accounts{query}", require_auth=True, timeout=20)
+    return response.get("data") or []
+
+
+def bridge_models(provider=None, capability=None):
+    query = f"?provider={urllib.parse.quote(provider)}" if provider else ""
+    response = request_json("GET", f"/api/bridge/models{query}", require_auth=True, timeout=20)
+    models = response.get("data") or []
+    if capability:
+        models = [item for item in models if item.get("capability") == capability]
+    return models
+
+
+def select_account(provider, account_key=None):
+    accounts = bridge_accounts(provider)
+    if account_key:
+        for account in accounts:
+            if account.get("accountKey") == account_key:
+                return account
+        raise BridgeError(f"account not found for provider {provider}: {account_key}")
+    if not accounts:
+        raise BridgeError(f"no accounts available for provider {provider}; sign in to the LovBrowser desktop client")
+    account = accounts[0]
+    print(f"account: {account.get('label') or account.get('accountKey')}", file=sys.stderr)
+    return account
+
+
+def ready_models(provider, capability):
+    return [item for item in bridge_models(provider, capability) if item.get("id")]
+
+
+def select_ready_model(provider, capability, model=None):
+    models = ready_models(provider, capability)
+    if model:
+        if any(item.get("id") == model for item in models):
+            return model
+        return None
+    if not models:
+        return None
+    selected = models[0]["id"]
+    print(f"model: {selected}", file=sys.stderr)
+    return selected
+
+
+def ensure_and_select_model(provider, capability, account_key=None, model=None):
+    selected = select_ready_model(provider, capability, model)
+    if selected:
+        return selected
+
+    account = select_account(provider, account_key)
+    ensure_result = ensure(provider, capability, account.get("accountKey"))
+    action = ensure_result.get("action") or "unknown"
+    print(f"ensure: {provider}/{capability} {action}", file=sys.stderr)
+
+    selected = select_ready_model(provider, capability, model)
+    if selected:
+        return selected
+    if model:
+        raise BridgeError(
+            f"model is not ready after ensure: {model}; ask the user to manually open the {provider} kernel"
+        )
+    raise BridgeError(
+        f"no ready {capability} model for provider {provider} after ensure; ask the user to manually open the kernel"
+    )
+
+
+def cmd_doctor(_args):
+    try:
+        with urllib.request.urlopen(f"{base_url()}/health", timeout=3) as resp:
+            health = resp.read().decode("utf-8", errors="replace")
+        print(f"bridge: {base_url()} {health}")
+    except Exception as exc:
+        raise BridgeError(f"LovBrowser Bridge health check failed: {exc}") from exc
+
+    if not token(required=False):
+        raise BridgeError(
+            "No token is configured. Open and sign in to LovBrowser desktop once; use lovbridge token bind <token> only as a fallback."
+        )
+
+    try_bind_token_to_bridge()
+    models = request_json("GET", "/v1/models", require_auth=True, timeout=10)
+    ids = [item.get("id") for item in models.get("data", []) if item.get("id")]
+    print("models:")
+    for model_id in ids:
+        print(f"- {model_id}")
+
+
+def cmd_models(_args):
+    try_bind_token_to_bridge()
+    for item in bridge_models(getattr(_args, "provider", None), getattr(_args, "capability", None)):
+        model_id = item.get("id")
+        if model_id:
+            print("\t".join([model_id, item.get("provider") or "", item.get("capability") or ""]))
+
+
+def cmd_ensure(args):
+    try_bind_token_to_bridge()
+    result = ensure(args.provider, args.capability, args.account_key)
+    binding = result.get("binding") or {}
+    model_id = binding.get("exposed_model_id") or binding.get("exposedModelId") or ""
+    provider = binding.get("provider") or args.provider
+    capability = binding.get("capability") or args.capability
+    action = result.get("action") or ""
+    status = result.get("status") or ""
+    parts = [value for value in [status, action, model_id, provider, capability] if value]
+    print("\t".join(parts))
+
+
+def provider_display_name(provider):
+    return {
+        "chatgpt": "ChatGPT",
+        "gemini": "Gemini",
+    }.get((provider or "").lower(), provider or "Unknown")
+
+
+def account_scope(account):
+    key = account.get("accountKey") or ""
+    parts = key.split(":")
+    if len(parts) >= 3 and parts[0] == "product":
+        return parts[2] or account.get("source") or "unknown"
+    if len(parts) >= 2 and parts[0] == "personal":
+        return "personal"
+    return account.get("source") or "unknown"
+
+
+def ai_account_label(account):
+    label = account.get("label") or ""
+    parts = [part.strip() for part in label.split("/") if part.strip()]
+    if parts:
+        return parts[-1]
+    return account.get("accountKey") or ""
+
+
+def cmd_accounts(args):
+    try_bind_token_to_bridge()
+    for item in bridge_accounts(args.provider):
+        if args.raw:
+            print("\t".join([
+                item.get("accountKey") or "",
+                item.get("provider") or "",
+                item.get("source") or "",
+                item.get("label") or "",
+            ]))
+            continue
+        provider = provider_display_name(item.get("provider") or args.provider)
+        scope = account_scope(item)
+        ai_account = ai_account_label(item)
+        print("\t".join([f"{provider}:{scope}", ai_account]))
+
+
+def prompt_text(parts):
+    text = " ".join(parts).strip()
+    if not text:
+        raise BridgeError("prompt is required")
+    return text
+
+
+def cmd_chat(args):
+    try_bind_token_to_bridge()
+    model = ensure_and_select_model(args.provider, "chat", args.account_key, args.model)
+    payload = {
+        "model": model,
+        "stream": False,
+        "messages": [{"role": "user", "content": prompt_text(args.prompt)}],
+    }
+    response = request_json("POST", "/v1/chat/completions", payload, require_auth=True, timeout=240)
+    choices = response.get("choices") or []
+    if not choices:
+        raise BridgeError("chat response has no choices")
+    print((choices[0].get("message") or {}).get("content", ""))
+
+
+def safe_slug(text):
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", text.strip())[:48].strip("-")
+    return slug or "image"
+
+
+def extension_for_mime(mime):
+    mime = (mime or "").split(";")[0].strip().lower()
+    return mimetypes.guess_extension(mime) or {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "audio/mpeg": ".mp3",
+        "audio/mp3": ".mp3",
+        "audio/wav": ".wav",
+        "video/mp4": ".mp4",
+        "video/quicktime": ".mov",
+        "video/webm": ".webm",
+    }.get(mime, ".bin")
+
+
+def save_image_bytes(provider, prompt, out_dir, payload_bytes, mime):
+    out = Path(out_dir).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    ext = extension_for_mime(mime)
+    filename = f"{provider}-{time.strftime('%Y%m%d-%H%M%S')}-{safe_slug(prompt)}{ext}"
+    path = out / filename
+    path.write_bytes(payload_bytes)
+    return path
+
+
+def markdown_image_target(path):
+    target = str(Path(path).expanduser().resolve())
+    if re.search(r"[\s()<>]", target):
+        return f"<{target.replace('>', '%3E')}>"
+    return target
+
+
+def print_image_result(path):
+    resolved = Path(path).expanduser().resolve()
+    print(f"![Generated image]({markdown_image_target(resolved)})")
+    print(f"file: {resolved}")
+
+
+def save_audio_bytes(provider, prompt, out_dir, payload_bytes, mime):
+    out = Path(out_dir).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    ext = extension_for_mime(mime)
+    filename = f"{provider}-{time.strftime('%Y%m%d-%H%M%S')}-{safe_slug(prompt)}{ext}"
+    path = out / filename
+    path.write_bytes(payload_bytes)
+    return path
+
+
+def save_audio_file_path(file_path, out_dir):
+    source = Path(file_path).expanduser()
+    if not source.exists():
+        raise BridgeError(f"audio filePath does not exist: {file_path}")
+    out = Path(out_dir).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    target = out / source.name
+    shutil.copyfile(source, target)
+    return target
+
+
+def save_video_bytes(provider, prompt, out_dir, payload_bytes, mime):
+    out = Path(out_dir).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    ext = extension_for_mime(mime)
+    filename = f"{provider}-{time.strftime('%Y%m%d-%H%M%S')}-{safe_slug(prompt)}{ext}"
+    path = out / filename
+    path.write_bytes(payload_bytes)
+    return path
+
+
+def save_video_file_path(file_path, out_dir):
+    source = Path(file_path).expanduser()
+    if not source.exists():
+        raise BridgeError(f"video filePath does not exist: {file_path}")
+    out = Path(out_dir).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    target = out / source.name
+    shutil.copyfile(source, target)
+    return target
+
+
+def cmd_image(args):
+    prompt = prompt_text(args.prompt)
+    try_bind_token_to_bridge()
+    model = ensure_and_select_model(args.provider, "image", args.account_key, args.model)
+    image_urls = image_urls_payload(args)
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "size": args.size,
+        "response_format": "url",
+    }
+    if image_urls:
+        payload["image_urls"] = image_urls
+    response = request_json(
+        "POST",
+        "/v1/images/generations",
+        payload,
+        require_auth=True,
+        timeout=360,
+    )
+    data = response.get("data") or []
+    if not data:
+        raise BridgeError("image response has no data")
+    first = data[0]
+    if first.get("url"):
+        asset_url = urllib.parse.urljoin(f"{base_url()}/", first["url"])
+        payload_bytes, mime = request_bytes(asset_url, require_auth=False, timeout=120)
+    elif first.get("b64_json"):
+        payload_bytes = base64.b64decode(first["b64_json"])
+        mime = "image/png"
+    else:
+        raise BridgeError("image response has neither url nor b64_json")
+    path = save_image_bytes(args.provider, prompt, args.out, payload_bytes, mime)
+    print_image_result(path)
+
+
+def cmd_audio(args):
+    prompt = prompt_text(args.prompt)
+    try_bind_token_to_bridge()
+    model = ensure_and_select_model(args.provider, "audio", args.account_key, args.model)
+    response = request_json(
+        "POST",
+        "/v1/audio/generations",
+        {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+        },
+        require_auth=True,
+        timeout=360,
+    )
+    data = response.get("data") or []
+    if not data:
+        raise BridgeError("audio response has no data")
+    first = data[0]
+    if first.get("filePath"):
+        path = save_audio_file_path(first["filePath"], args.out)
+        print(str(path))
+        return
+    if first.get("url"):
+        asset_url = urllib.parse.urljoin(f"{base_url()}/", first["url"])
+        if asset_url.startswith("data:") and ";base64," in asset_url:
+            payload_bytes = base64.b64decode(asset_url.split(",", 1)[1])
+            mime = asset_url.split(";", 1)[0].replace("data:", "") or "audio/mpeg"
+        else:
+            payload_bytes, mime = request_bytes(asset_url, require_auth=False, timeout=120)
+    elif first.get("b64_json"):
+        payload_bytes = base64.b64decode(first["b64_json"])
+        mime = first.get("mimeType") or first.get("mime_type") or "audio/mpeg"
+    else:
+        raise BridgeError("audio response has neither filePath, url nor b64_json")
+    path = save_audio_bytes(args.provider, prompt, args.out, payload_bytes, mime)
+    print(str(path))
+
+
+def cmd_video(args):
+    prompt = prompt_text(args.prompt)
+    try_bind_token_to_bridge()
+    model = ensure_and_select_model(args.provider, "video", args.account_key, args.model)
+    image_urls = image_urls_payload(args)
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        **({"accountKey": args.account_key} if args.account_key else {}),
+    }
+    if image_urls:
+        payload["image_urls"] = image_urls
+    response = request_json(
+        "POST",
+        "/v1/video/generations",
+        payload,
+        require_auth=True,
+        timeout=900,
+    )
+    data = response.get("data") or []
+    if not data:
+        raise BridgeError("video response has no data")
+    first = data[0]
+    if first.get("filePath"):
+        path = save_video_file_path(first["filePath"], args.out)
+        print(str(path))
+        return
+    if first.get("url"):
+        asset_url = urllib.parse.urljoin(f"{base_url()}/", first["url"])
+        if asset_url.startswith("data:") and ";base64," in asset_url:
+            payload_bytes = base64.b64decode(asset_url.split(",", 1)[1])
+            mime = asset_url.split(";", 1)[0].replace("data:", "") or "video/mp4"
+        else:
+            payload_bytes, mime = request_bytes(asset_url, require_auth=False, timeout=300)
+    elif first.get("b64_json"):
+        payload_bytes = base64.b64decode(first["b64_json"])
+        mime = first.get("mimeType") or first.get("mime_type") or "video/mp4"
+    else:
+        raise BridgeError("video response has neither filePath, url nor b64_json")
+    path = save_video_bytes(args.provider, prompt, args.out, payload_bytes, mime)
+    print(str(path))
+
+
+def cmd_token_bind(args):
+    value = " ".join(args.value).strip()
+    if not value:
+        raise BridgeError("token is required")
+    save_token(value)
+    try:
+        bind_token_to_bridge(value)
+        print("token: saved and bound")
+    except BridgeError as exc:
+        print(f"token: saved; bind endpoint unavailable or failed ({exc})", file=sys.stderr)
+
+
+def cmd_token_status(_args):
+    print("token: configured" if token(required=False) else "token: missing")
+
+
+def cmd_token_clear(_args):
+    clear_saved_token()
+    print("token: cleared")
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="lovbridge")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    doctor = sub.add_parser("doctor")
+    doctor.set_defaults(func=cmd_doctor)
+
+    models = sub.add_parser("models")
+    models.add_argument("--provider", choices=["chatgpt", "gemini"])
+    models.add_argument("--capability", choices=["chat", "image", "audio", "video"])
+    models.set_defaults(func=cmd_models)
+
+    ensure_cmd = sub.add_parser("ensure")
+    ensure_cmd.add_argument("--provider", choices=["chatgpt", "gemini"], required=True)
+    ensure_cmd.add_argument("--capability", choices=["chat", "image", "audio", "video"], required=True)
+    ensure_cmd.add_argument("--account-key")
+    ensure_cmd.set_defaults(func=cmd_ensure)
+
+    accounts = sub.add_parser("accounts")
+    accounts.add_argument("--provider", choices=["chatgpt", "gemini"])
+    accounts.add_argument("--raw", action="store_true", help="print raw accountKey/provider/source/label columns")
+    accounts.set_defaults(func=cmd_accounts)
+
+    token_cmd = sub.add_parser("token")
+    token_sub = token_cmd.add_subparsers(dest="token_command", required=True)
+
+    token_bind = token_sub.add_parser("bind")
+    token_bind.add_argument("value", nargs="+")
+    token_bind.set_defaults(func=cmd_token_bind)
+
+    token_status = token_sub.add_parser("status")
+    token_status.set_defaults(func=cmd_token_status)
+
+    token_clear = token_sub.add_parser("clear")
+    token_clear.set_defaults(func=cmd_token_clear)
+
+    chat = sub.add_parser("chat")
+    chat.add_argument("--provider", choices=["chatgpt", "gemini"], required=True)
+    chat.add_argument("--account-key")
+    chat.add_argument("--model")
+    chat.add_argument("prompt", nargs="+")
+    chat.set_defaults(func=cmd_chat)
+
+    image = sub.add_parser("image")
+    image.add_argument("--provider", choices=["chatgpt", "gemini"], required=True)
+    image.add_argument("--account-key")
+    image.add_argument("--model")
+    image.add_argument("--image", action="append", default=[], help="reference image path or URL; repeat up to 3 times")
+    image.add_argument("--size", default="1024x1024")
+    image.add_argument("--out", default="~/Downloads/lovbrowser-bridge")
+    image.add_argument("prompt", nargs="+")
+    image.set_defaults(func=cmd_image)
+
+    audio = sub.add_parser("audio")
+    audio.add_argument("--provider", choices=["chatgpt", "gemini"], default="gemini")
+    audio.add_argument("--account-key")
+    audio.add_argument("--model", default="gemini-lyria-3")
+    audio.add_argument("--out", default="~/Downloads/lovbrowser-bridge")
+    audio.add_argument("prompt", nargs="+")
+    audio.set_defaults(func=cmd_audio)
+
+    video = sub.add_parser("video")
+    video.add_argument("--provider", choices=["gemini"], default="gemini")
+    video.add_argument("--account-key")
+    video.add_argument("--model", default="gemini-omni-video")
+    video.add_argument("--image", action="append", default=[], help="reference image path or URL; repeat up to 3 times")
+    video.add_argument("--out", default="~/Downloads/lovbrowser-bridge")
+    video.add_argument("prompt", nargs="+")
+    video.set_defaults(func=cmd_video)
+
+    return parser
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        args.func(args)
+    except BridgeError as exc:
+        print(f"lovbridge: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("lovbridge: interrupted", file=sys.stderr)
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

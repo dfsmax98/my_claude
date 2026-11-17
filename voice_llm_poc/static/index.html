@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语音助手</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ec; --muted: #8a92a3; --accent: #4f8cff;
+    --idle: #6b7280; --rec: #ef4444; --busy: #f59e0b; --ok: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .status {
+    margin-left: auto; display: flex; align-items: center; gap: 9px;
+    padding: 7px 14px; border-radius: 999px; background: var(--panel2); font-weight: 600;
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--idle);
+         transition: background .2s; }
+  .dot.rec  { background: var(--rec);  box-shadow: 0 0 0 4px rgba(239,68,68,.2); animation: pulse 1s infinite; }
+  .dot.busy { background: var(--busy); box-shadow: 0 0 0 4px rgba(245,158,11,.2); }
+  .dot.idle { background: var(--idle); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .wrap { max-width: 860px; margin: 0 auto; padding: 22px; }
+
+  .cfg { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .chip { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+          padding: 8px 12px; color: var(--muted); font-size: 12.5px; }
+  .chip b { color: var(--text); font-weight: 600; }
+  kbd { background: #0b0d11; border: 1px solid var(--border); border-radius: 5px;
+        padding: 1px 6px; font-family: ui-monospace, Consolas, monospace; color: var(--accent); }
+
+  .live {
+    background: var(--panel); border: 1px dashed var(--border); border-radius: 12px;
+    padding: 18px 20px; min-height: 64px; margin-bottom: 22px;
+    display: flex; align-items: center; color: var(--muted);
+  }
+  .live.active { border-color: var(--rec); color: var(--text); }
+  .live.retry { border-color: var(--busy); color: var(--busy); border-style: solid; }
+  .live .txt { font-size: 16px; line-height: 1.5; }
+  .live .sel { font-size: 12px; color: var(--busy); margin-bottom: 6px; }
+  .meter { display: flex; align-items: center; gap: 3px; height: 26px; margin-right: 14px; }
+  .meter .bar { width: 4px; height: 6px; background: #3a4254; border-radius: 2px; transition: height .08s, background .08s; }
+
+  h2.section { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 12px;
+               text-transform: uppercase; letter-spacing: .5px; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+          padding: 16px 18px; margin-bottom: 14px; }
+  .card .head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px;
+           background: rgba(79,140,255,.15); color: var(--accent); }
+  .badge.translate { background: rgba(34,197,94,.15); color: var(--ok); }
+  .badge.ask { background: rgba(245,158,11,.15); color: var(--busy); }
+  .badge.rewrite { background: rgba(236,72,153,.18); color: #ec4899; }
+  .card .time { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .row { margin: 8px 0; }
+  .row .label { color: var(--muted); font-size: 11.5px; margin-bottom: 3px; }
+  .row .orig { color: var(--muted); }
+  .row .final { font-size: 15px; line-height: 1.55; }
+  .card .foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .copy { background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+          border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .copy:hover { color: var(--text); border-color: var(--accent); }
+  .tag-inject { font-size: 11px; color: var(--ok); }
+  .empty { color: var(--muted); text-align: center; padding: 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎙 语音助手</h1>
+  <span class="sub" id="conn">连接中…</span>
+  <div class="status"><span class="dot idle" id="dot"></span><span id="statusText">空闲</span></div>
+</header>
+
+<div class="wrap">
+  <div class="cfg" id="cfg"></div>
+
+  <div class="live" id="live"><div class="meter" id="meter" style="display:none"></div><span class="txt" id="liveTxt">按热键开始说话,这里实时显示识别文字…</span></div>
+
+  <h2 class="section">历史记录</h2>
+  <div id="history"><div class="empty">还没有记录。按热键说一句试试。</div></div>
+</div>
+
+<script>
+const MODE_LABEL = { dictate: "口述", translate: "翻译", ask: "问答", rewrite: "改写" };
+const $ = id => document.getElementById(id);
+let currentCard = null;
+
+function setStatus(status, mode) {
+  const dot = $("dot"), t = $("statusText");
+  dot.className = "dot " + (status === "recording" ? "rec" : status === "busy" ? "busy" : "idle");
+  const map = { recording: "录音中", busy: "生成中", idle: "空闲" };
+  t.textContent = (map[status] || status) + (mode ? " · " + mode : "");
+  const live = $("live");
+  live.classList.remove("retry");
+  if (status === "recording") { live.classList.add("active"); showMeter(true); $("liveTxt").textContent = "聆听中…"; }
+  if (status === "busy") { $("liveTxt").textContent = "思考中…"; }
+  if (status === "idle") { live.classList.remove("active"); showMeter(false); $("liveTxt").textContent = "按热键开始说话,这里实时显示识别文字…"; clearSel(); }
+}
+function clearSel(){ const s=$("live").querySelector(".sel"); if(s) s.remove(); }
+
+const METER_BARS = 11;
+function showMeter(on) {
+  const m = $("meter");
+  if (on) {
+    if (!m.childElementCount) { for (let i=0;i<METER_BARS;i++){ const b=document.createElement("div"); b.className="bar"; m.appendChild(b);} }
+    m.style.display = "flex";
+  } else { m.style.display = "none"; }
+}
+function setLevel(lvl) {
+  const m = $("meter");
+  if (m.style.display === "none") return;
+  [...m.children].forEach((b, i) => {
+    const bias = 1 - Math.abs(i - (METER_BARS-1)/2) / (METER_BARS/1.5);
+    const h = Math.max(6, Math.round((0.15 + lvl*bias*(0.6+0.6*Math.random())) * 26));
+    b.style.height = h + "px";
+    b.style.background = lvl > 0.05 ? "#4f8cff" : "#3a4254";
+  });
+}
+function showRetry(msg) {
+  const live = $("live");
+  live.classList.remove("active"); live.classList.add("retry");
+  showMeter(false);
+  $("liveTxt").textContent = "🔇 " + (msg || "没听清,请再说一遍");
+  setTimeout(() => { live.classList.remove("retry"); $("liveTxt").textContent = "按热键开始说话,这里实时显示识别文字…"; }, 2500);
+}
+
+function showSelection(sel) {
+  clearSel();
+  if (!sel) return;
+  const d = document.createElement("div");
+  d.className = "sel";
+  d.textContent = "✂ 已选中:" + sel.slice(0, 60).replace(/\n/g," ") + (sel.length>60?"…":"");
+  $("live").prepend(d);
+}
+
+function loadConfig() {
+  fetch("/api/config").then(r => r.json()).then(c => {
+    $("cfg").innerHTML = `
+      <div class="chip">模型 <b>${c.model}</b></div>
+      <div class="chip">口述 <kbd>${c.hotkeys.dictate}</kbd></div>
+      <div class="chip">翻译→${c.translate_target} <kbd>${c.hotkeys.translate}</kbd></div>
+      <div class="chip">问答/改写 <kbd>${c.hotkeys.ask}</kbd></div>
+      <div class="chip">输出 <b>${c.output_mode === "type" ? "敲到光标处" : "仅显示"}</b></div>`;
+  }).catch(()=>{});
+}
+
+function badgeFor(mode, selection) {
+  if (mode === "ask" && selection) return `<span class="badge rewrite">改写</span>`;
+  const cls = mode === "translate" ? "translate" : mode === "ask" ? "ask" : "";
+  return `<span class="badge ${cls}">${MODE_LABEL[mode] || mode}</span>`;
+}
+
+function newCard(evt) {
+  const hist = $("history");
+  if (hist.querySelector(".empty")) hist.innerHTML = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  const time = new Date().toLocaleTimeString("zh-CN", {hour12:false});
+  card.innerHTML = `
+    <div class="head">${badgeFor(evt.mode, evt.selection)}<span class="time">${time}</span></div>
+    ${evt.selection ? `<div class="row"><div class="label">选中原文</div><div class="orig">${esc(evt.selection)}</div></div>` : ""}
+    <div class="row"><div class="label">语音原文</div><div class="orig">${esc(evt.text)}</div></div>
+    <div class="row result-row"><div class="label">结果</div><div class="final">生成中…</div></div>`;
+  hist.prepend(card);
+  currentCard = card;
+}
+
+function fillResult(evt) {
+  if (!currentCard) newCard({mode: evt.mode, text: "", selection: ""});
+  const final = currentCard.querySelector(".final");
+  final.textContent = evt.text;
+  const foot = document.createElement("div");
+  foot.className = "foot";
+  const tm = evt.timing || {};
+  const timing = tm.total_ms ? `<span class="time" style="margin-left:auto">识别 ${tm.asr_ms}ms · LLM ${(tm.llm_ms/1000).toFixed(1)}s · 总 ${(tm.total_ms/1000).toFixed(1)}s</span>` : "";
+  foot.innerHTML = `<button class="copy">复制</button>${evt.injected ? '<span class="tag-inject">✓ 已敲入光标处</span>' : ''}${timing}`;
+  foot.querySelector(".copy").onclick = () => navigator.clipboard.writeText(evt.text);
+  currentCard.appendChild(foot);
+  currentCard = null;
+}
+
+function esc(s){ const d=document.createElement("div"); d.textContent=s||""; return d.innerHTML; }
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { $("conn").textContent = "● 已连接"; $("conn").style.color = "#22c55e"; };
+  ws.onclose = () => { $("conn").textContent = "○ 已断开,重连中…"; $("conn").style.color="#8a92a3"; setTimeout(connect, 2000); };
+  ws.onmessage = e => {
+    const evt = JSON.parse(e.data);
+    switch (evt.type) {
+      case "status":  setStatus(evt.status, evt.mode); if(evt.status==="recording") showSelection(evt.selection); break;
+      case "level":   setLevel(evt.level || 0); break;
+      case "partial": $("liveTxt").textContent = evt.text || "…"; break;
+      case "original": newCard(evt); break;
+      case "result":  fillResult(evt); break;
+      case "retry":   showRetry(evt.reason); break;
+      case "notice":  showRetry(evt.reason || "没听到内容"); break;
+      case "empty":   $("liveTxt").textContent = "(没听到内容)"; break;
+    }
+  };
+}
+loadConfig();
+connect();
+</script>
+</body>
+</html>

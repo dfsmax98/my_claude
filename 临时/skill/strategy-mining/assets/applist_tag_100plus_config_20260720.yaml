@@ -1,0 +1,46 @@
+feature_group: applist_tag_100plus
+date_tag: '20260720'
+source_tables:
+  applist: default.t_bd_credit_cust_app_info
+  app_tag: d_dq.fqz_applist_tag_new
+join_logic: sample.cust_no = applist.cust_no and applist.app_install_datetime < sample_time;
+  applist.app_package = app_tag.app_package
+windows:
+- 1h
+- 3h
+- 24h
+- 7d
+- 30d
+- 90d
+- 180d
+- 365d
+- 730d
+metrics:
+- cnt
+- ratio
+- flag
+- conf_wgt
+groups:
+- risk_any
+- l1_travel
+- l1_ecommerce
+- l1_video
+- l1_life
+- l1_social
+- l1_bank
+- l1_office
+- l1_finance
+- l1_news
+- l1_loan
+- q_truck_driver
+- q_enterprise
+- q_self_employed
+- q_ride_hailing
+- q_good_customer
+stages:
+  preloan:
+    output_table: d_dq.dfs_applist_tag_features_preloan_20260720
+    sql_path: D:\反欺诈策略室\daifansheng\新反欺诈\codex\skill\strategy-mining\assets\applist_tag_100plus_features_preloan_20260720.sql
+  inloan:
+    output_table: d_dq.dfs_applist_tag_features_inloan_20260720
+    sql_path: D:\反欺诈策略室\daifansheng\新反欺诈\codex\skill\strategy-mining\assets\applist_tag_100plus_features_inloan_20260720.sql

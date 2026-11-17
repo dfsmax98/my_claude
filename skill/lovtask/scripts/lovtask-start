@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+#
+# lovtask-start — Fetch a DevTask and print orchestration instructions
+#
+# Fetches task details from the backend, marks the task as executing,
+# and prints instructions for starting Tauri orchestration.
+#
+# Usage:
+#   lovtask-start <task-id> [--model <model>] [--plan] [--tool <claude|codex>]
+#
+# Environment:
+#   LOVBROWSER_API_URL   — Backend API base URL (e.g., https://lovbrowser.com/api; local debug may use localhost)
+#   LOVBROWSER_API_TOKEN — Bearer token for API authentication
+#
+
+set -euo pipefail
+
+# --- Argument parsing ---
+TASK_ID=""
+MODEL="sonnet"
+PLAN_MODE=false
+TOOL="claude"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)
+      MODEL="$2"
+      shift 2
+      ;;
+    --plan)
+      PLAN_MODE=true
+      shift
+      ;;
+    --tool)
+      TOOL="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: lovtask-start <task-id> [--model <model>] [--plan] [--tool <claude|codex>]"
+      echo ""
+      echo "Fetches task details and prints orchestration instructions."
+      echo ""
+      echo "Options:"
+      echo "  --model <model>   AI model to use (default: sonnet)"
+      echo "  --plan            Enable plan mode"
+      echo "  --tool <tool>     AI tool: claude or codex (default: claude)"
+      echo ""
+      echo "Environment:"
+      echo "  LOVBROWSER_API_URL   Backend API base URL"
+      echo "  LOVBROWSER_API_TOKEN Bearer token for API auth"
+      exit 0
+      ;;
+    *)
+      if [[ -z "$TASK_ID" ]]; then
+        TASK_ID="$1"
+      else
+        echo "Error: unexpected argument '$1'" >&2
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$TASK_ID" ]]; then
+  echo "Error: task ID is required" >&2
+  echo "Usage: lovtask-start <task-id> [--model <model>] [--plan] [--tool <claude|codex>]" >&2
+  exit 1
+fi
+
+# --- Environment validation ---
+if [[ -z "${LOVBROWSER_API_URL:-}" ]]; then
+  echo "Error: LOVBROWSER_API_URL environment variable is not set" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_TOKEN:-}" ]]; then
+  echo "Error: LOVBROWSER_API_TOKEN environment variable is not set" >&2
+  exit 1
+fi
+
+# --- Fetch task details ---
+API_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/${TASK_ID}"
+
+echo "Fetching task $TASK_ID..."
+
+HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+  -X GET \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+  "$API_URL" 2>&1) || {
+  echo "Error: failed to connect to API" >&2
+  exit 1
+}
+
+HTTP_BODY=$(printf '%s\n' "$HTTP_RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s\n' "$HTTP_RESPONSE" | tail -n 1)
+
+if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
+  echo "Error: API returned HTTP $HTTP_CODE" >&2
+  if [[ -n "$HTTP_BODY" ]]; then
+    echo "$HTTP_BODY" >&2
+  fi
+  exit 1
+fi
+
+# --- Parse task info ---
+if command -v jq &>/dev/null; then
+  TASK_TITLE=$(echo "$HTTP_BODY" | jq -r '.data.task.title // .data.title // "Unknown"')
+  TASK_STATUS=$(echo "$HTTP_BODY" | jq -r '.data.task.status // .data.status // "Unknown"')
+  TASK_TYPE=$(echo "$HTTP_BODY" | jq -r '.data.task.type // .data.type // "Unknown"')
+  TASK_PRIORITY=$(echo "$HTTP_BODY" | jq -r '.data.task.priority // .data.priority // "Unknown"')
+  TASK_DESC=$(echo "$HTTP_BODY" | jq -r '.data.task.description // .data.description // ""')
+else
+  TASK_TITLE="(install jq for detailed output)"
+  TASK_STATUS="unknown"
+  TASK_TYPE="unknown"
+  TASK_PRIORITY="unknown"
+  TASK_DESC=""
+fi
+
+echo ""
+echo "=============================="
+echo "  DevTask #$TASK_ID"
+echo "=============================="
+echo "Title:    $TASK_TITLE"
+echo "Status:   $TASK_STATUS"
+echo "Type:     $TASK_TYPE"
+echo "Priority: $TASK_PRIORITY"
+if [[ -n "$TASK_DESC" ]]; then
+  echo ""
+  echo "Description:"
+  echo "$TASK_DESC"
+fi
+echo "=============================="
+
+# --- Mark task as executing ---
+if [[ "$TASK_STATUS" != "executing" && "$TASK_STATUS" != "awaiting_acceptance" && "$TASK_STATUS" != "accepted" && "$TASK_STATUS" != "cancelled" ]]; then
+  echo ""
+  echo "Marking task as executing..."
+
+  START_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/${TASK_ID}/start"
+
+  START_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+    "$START_URL" 2>&1) || {
+    echo "Warning: failed to start task" >&2
+  }
+
+  START_CODE=$(printf '%s\n' "$START_RESPONSE" | tail -n 1)
+  if [[ "$START_CODE" -ge 200 && "$START_CODE" -lt 300 ]]; then
+    echo "Task moved to executing."
+    TASK_STATUS="executing"
+  else
+    echo "Warning: task start returned HTTP $START_CODE" >&2
+  fi
+fi
+
+# --- Print orchestration instructions ---
+echo ""
+echo "=============================="
+echo "  Orchestration Instructions"
+echo "=============================="
+echo ""
+echo "To start orchestration in LovBrowser desktop app:"
+echo "  1. Open DevTask detail page for task #$TASK_ID"
+echo "  2. Click 'Start Orchestration'"
+echo "  3. Configure: tool=$TOOL, model=$MODEL, planMode=$PLAN_MODE"
+echo "  4. Confirm to begin"
+echo ""
+echo "Or use the Tauri CLI command:"
+echo "  devtask_start_orchestration {"
+echo "    \"taskId\": $TASK_ID,"
+echo "    \"tool\": \"$TOOL\","
+echo "    \"model\": \"$MODEL\","
+echo "    \"planMode\": $PLAN_MODE"
+echo "  }"
+echo ""
+echo "After completion, run:"
+echo "  lovtask-done $TASK_ID"
+echo ""
+echo "=============================="

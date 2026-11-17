@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>声纹风险工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-panel">
+      <div class="signal-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <h1>声纹风险工作台</h1>
+      <label><span>账号</span><input id="loginUsername" autocomplete="username" required></label>
+      <label><span>密码</span><input id="loginPassword" type="password" autocomplete="current-password" required></label>
+      <button class="primary-button" type="submit">登录</button>
+      <p id="loginError" hidden></p>
+    </form>
+  </div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="signal-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div><strong>声纹风险工作台</strong><small>VOICE RISK OPS</small></div>
+      </div>
+      <nav class="nav" aria-label="功能导航">
+        <button class="nav-item active" data-view="overview" data-mobile="总览"><span>总览</span><b id="navPending">0</b></button>
+        <button class="nav-item" data-view="intake" data-mobile="处理"><span>录音处理</span></button>
+        <button class="nav-item" data-view="jobs" data-mobile="任务"><span>任务中心</span></button>
+        <button class="nav-item" data-view="customers" data-mobile="客户库"><span>客户声纹库</span></button>
+        <button class="nav-item" data-view="black"><span>黑产声纹库</span></button>
+        <button class="nav-item" data-view="clusters"><span>团伙声纹簇</span></button>
+        <button class="nav-item" data-view="reviews"><span>人工复核</span></button>
+        <button class="nav-item" data-view="models"><span>模型与阈值</span></button>
+        <button class="nav-item" data-view="monitoring"><span>运行监控</span></button>
+        <button class="nav-item" data-view="accounts"><span>账号管理</span></button>
+        <button class="nav-item" data-view="permissions"><span>权限配置</span></button>
+        <button class="nav-item" data-view="releases"><span>版本公告</span></button>
+      </nav>
+      <div class="service-state"><i id="serviceDot"></i><div><strong id="serviceText">连接中</strong><small id="refreshTime">--</small></div></div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><p>反欺诈声纹识别</p><h1 id="pageTitle">运行总览</h1></div>
+        <div class="top-actions"><span id="currentUser">--</span><button id="logoutButton" class="text-button" type="button">退出</button><button id="refreshButton" class="icon-button" type="button" title="刷新" aria-label="刷新">↻</button></div>
+      </header>
+
+      <div id="errorBanner" class="error-banner" hidden></div>
+
+      <section class="view active" data-view-panel="overview">
+        <div class="metric-grid">
+          <article><span>累计任务</span><strong id="metricJobs">0</strong><small id="metricJobState">无排队任务</small></article>
+          <article><span>客户模板</span><strong id="metricCustomers">0</strong><small id="metricCustomerState">0个客户</small></article>
+          <article><span>黑产模板</span><strong id="metricBlack">0</strong><small id="metricBlackState">0个黑产身份</small></article>
+          <article><span>待复核</span><strong id="metricReviews">0</strong><small>角色、核验与入库</small></article>
+        </div>
+        <div class="overview-layout">
+          <section class="work-section">
+            <div class="section-title"><div><span>实时流水</span><h2>最近处理任务</h2></div><button class="text-button" data-go="jobs">查看全部</button></div>
+            <div class="table-scroll"><table><thead><tr><th>任务</th><th>类型</th><th>阶段</th><th>进度</th><th>状态</th><th>时间</th></tr></thead><tbody id="recentJobs"></tbody></table></div>
+          </section>
+          <aside class="risk-rail">
+            <div class="rail-head"><span>冻结后端</span><strong id="backendName">--</strong></div>
+            <dl>
+              <div><dt>角色模型</dt><dd id="roleModel">--</dd></div>
+              <div><dt>质量阈值</dt><dd id="qualityThreshold">--</dd></div>
+              <div><dt>黑产阈值</dt><dd id="blackThreshold">--</dd></div>
+              <div><dt>N:N模式</dt><dd>影子运行</dd></div>
+            </dl>
+            <canvas id="signalCanvas" height="84" aria-label="音频信号"></canvas>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="intake">
+        <div class="segmented" role="tablist">
+          <button class="active" data-intake="customer" role="tab">客户核验</button>
+          <button data-intake="black" role="tab">黑产入库</button>
+        </div>
+        <form id="uploadForm" class="upload-form">
+          <div class="form-grid">
+            <label id="identityLabel"><span>客户主键</span><input id="identityInput" name="customer_key" autocomplete="off" required></label>
+            <label id="reviewerField" hidden><span>审核提交人</span><input id="reviewerInput" name="reviewer" value="未标识用户"></label>
+          </div>
+          <label class="drop-zone" id="dropZone">
+            <input id="audioInput" type="file" name="audio" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.wma" required>
+            <strong id="fileName">选择双轨录音</strong>
+            <span id="fileMeta">MP3、WAV、FLAC、M4A、AAC、OGG、WMA，最大100 MiB</span>
+          </label>
+          <div class="form-actions"><button class="primary-button" type="submit" id="submitButton">上传并处理</button><span id="uploadState"></span></div>
+        </form>
+      </section>
+
+      <section class="view" data-view-panel="jobs">
+        <div class="section-title"><div><span>异步处理</span><h2>任务中心</h2></div></div>
+        <div class="table-scroll"><table><thead><tr><th>任务ID</th><th>类型</th><th>阶段</th><th>进度</th><th>状态</th><th>结果</th><th>创建时间</th></tr></thead><tbody id="jobRows"></tbody></table></div>
+      </section>
+
+      <section class="view" data-view-panel="customers">
+        <div class="section-title"><div><span>主键绑定</span><h2>客户声纹库</h2></div></div>
+        <div class="table-scroll"><table><thead><tr><th>客户主键</th><th>平台ID</th><th>状态</th><th>有效模板</th><th>待审模板</th><th>更新时间</th></tr></thead><tbody id="customerRows"></tbody></table></div>
+      </section>
+
+      <section class="view" data-view-panel="black">
+        <div class="section-title"><div><span>1:N检索源</span><h2>黑产声纹库</h2></div><button class="primary-button compact" data-go="intake" data-mode="black">提交黑产录音</button></div>
+        <div class="table-scroll"><table><thead><tr><th>黑产身份</th><th>状态</th><th>有效模板</th><th>更新时间</th></tr></thead><tbody id="blackRows"></tbody></table></div>
+      </section>
+
+      <section class="view" data-view-panel="clusters">
+        <div class="section-title"><div><span>互为Top-K近邻</span><h2>团伙声纹簇</h2></div><button class="primary-button compact" id="runClusterButton">运行N:N</button></div>
+        <div id="clusterNotice" class="notice">结果处于影子运行状态，仅生成调查候选。</div>
+        <div class="table-scroll"><table><thead><tr><th>运行ID</th><th>客户数</th><th>连边数</th><th>候选簇</th><th>阈值</th><th>状态</th><th>时间</th></tr></thead><tbody id="clusterRows"></tbody></table></div>
+      </section>
+
+      <section class="view" data-view-panel="reviews">
+        <div class="section-title"><div><span>人工决策</span><h2>复核队列</h2></div><label class="reviewer-inline">审核人<input id="decisionReviewer" value="未标识用户"></label></div>
+        <div class="table-scroll"><table><thead><tr><th>优先级</th><th>类型</th><th>原因</th><th>目标</th><th>状态</th><th>操作</th></tr></thead><tbody id="reviewRows"></tbody></table></div>
+      </section>
+
+      <section class="view" data-view-panel="models">
+        <div class="section-title"><div><span>版本化配置</span><h2>模型与阈值</h2></div></div>
+        <div class="model-grid">
+          <section><h3>模型链</h3><dl id="modelDetails"></dl></section>
+          <section><h3>客户1:1</h3><div class="threshold-scale"><i></i><i></i><i></i></div><dl id="selfThresholds"></dl></section>
+          <section><h3>黑产1:N</h3><dl id="blackDetails"></dl></section>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="monitoring">
+        <div class="section-title"><div><span>单实例运行</span><h2>运行监控</h2></div></div>
+        <div class="model-grid">
+          <section><h3>服务状态</h3><dl id="monitorService"></dl></section>
+          <section><h3>任务状态</h3><dl id="monitorJobs"></dl></section>
+          <section><h3>存储状态</h3><dl id="monitorStorage"></dl></section>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="accounts">
+        <div class="section-title"><div><span>管理员配置</span><h2>账号管理</h2></div></div>
+        <form id="userForm" class="upload-form compact-form">
+          <div class="form-grid">
+            <label><span>账号</span><input id="userNameInput" required></label>
+            <label><span>显示名</span><input id="displayNameInput"></label>
+            <label><span>角色</span><select id="roleInput"><option value="viewer">viewer</option><option value="operator">operator</option><option value="admin">admin</option></select></label>
+            <label><span>状态</span><select id="statusInput"><option value="active">active</option><option value="disabled">disabled</option></select></label>
+            <label><span>新密码</span><input id="passwordInput" type="password"></label>
+          </div>
+          <div class="form-actions"><button class="primary-button" type="submit">保存账号</button><span id="userSaveState"></span></div>
+        </form>
+        <div class="table-scroll"><table><thead><tr><th>账号</th><th>显示名</th><th>角色</th><th>状态</th><th>最近登录</th></tr></thead><tbody id="userRows"></tbody></table></div>
+      </section>
+
+      <section class="view" data-view-panel="permissions">
+        <div class="section-title"><div><span>数据权限</span><h2>权限配置</h2></div></div>
+        <div class="notice">权限由管理员配置；阈值冻结、单实例运行和客户活动模板上限在治理配置中维护。</div>
+        <form id="permissionForm" class="work-section"></form>
+      </section>
+
+      <section class="view" data-view-panel="releases">
+        <div class="section-title"><div><span>版本历史</span><h2>版本公告</h2></div></div>
+        <form id="releaseForm" class="upload-form compact-form">
+          <div class="form-grid">
+            <label><span>版本号</span><input id="releaseVersion" required></label>
+            <label><span>标题</span><input id="releaseTitle" required></label>
+          </div>
+          <label><span>公告内容</span><textarea id="releaseBody" rows="5" required></textarea></label>
+          <div class="form-actions"><button class="primary-button" type="submit">发布公告</button><span id="releaseSaveState"></span></div>
+        </form>
+        <div id="releaseRows" class="release-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="detailDialog">
+    <div class="dialog-head"><div><span id="detailType">处理详情</span><h2 id="detailTitle">--</h2></div><button id="closeDialog" class="icon-button" aria-label="关闭">×</button></div>
+    <div id="detailBody"></div>
+  </dialog>
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

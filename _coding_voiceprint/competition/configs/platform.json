@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "platform_version": "voiceprint-platform-v1",
+  "storage_root": "data/processed/platform",
+  "models": {
+    "role_model_version": "role-text-v1-20260820",
+    "role_model_path": "models/role/role_text_v1_20260820/role_text_model.joblib",
+    "embedding_model": "CAM++",
+    "embedding_model_version": "campp_funasr_ms",
+    "embedding_dimension": 192,
+    "backend_version": "customer-plda-v2-current-role",
+    "backend_dir": "models/backend/customer_plda_v2_current_role"
+  },
+  "quality": {
+    "review_below": 0.7314997896756941,
+    "cohort_topk": 50
+  },
+  "self_check": {
+    "backend": "plda",
+    "reject_below": -41.62520980834961,
+    "accept_at_or_above": -14.513204574584961,
+    "calibration": "quality_subset_genuine_p05_and_impostor_p99"
+  },
+  "black_search": {
+    "backend": "cosine_identity_max_pooling",
+    "threshold": 0.9036450386047364,
+    "review_below": 0.8858376145362855,
+    "topk": 5,
+    "bootstrap_db": "data/processed/black_voiceprint_library_20260821/black_db.pkl"
+  },
+  "gang_cluster": {
+    "threshold": 0.925,
+    "topk": 2,
+    "min_cluster_size": 3,
+    "interval_hours": 24,
+    "shadow_only": true
+  },
+  "security": {
+    "session_hours": 8,
+    "default_admin": {
+      "username": "d02206",
+      "display_name": "平台管理员"
+    }
+  },
+  "governance": {
+    "single_instance": true,
+    "thresholds_frozen": true,
+    "customer_active_template_limit": 3,
+    "review_policy": {
+      "platform_decision_external": true,
+      "manual_review_kinds": [
+        "self_check_gray_zone",
+        "black_search_gray_zone"
+      ]
+    },
+    "default_permissions": {
+      "admin": {
+        "view_customer_key": true,
+        "view_audio": true,
+        "view_transcript": true,
+        "view_embedding_metadata": true,
+        "manage_users": true,
+        "manage_permissions": true,
+        "manage_releases": true,
+        "view_monitoring": true,
+        "trigger_cluster": true
+      },
+      "operator": {
+        "view_customer_key": true,
+        "view_audio": true,
+        "view_transcript": true,
+        "view_embedding_metadata": false,
+        "manage_users": false,
+        "manage_permissions": false,
+        "manage_releases": false,
+        "view_monitoring": true,
+        "trigger_cluster": true
+      },
+      "viewer": {
+        "view_customer_key": false,
+        "view_audio": false,
+        "view_transcript": false,
+        "view_embedding_metadata": false,
+        "manage_users": false,
+        "manage_permissions": false,
+        "manage_releases": false,
+        "view_monitoring": true,
+        "trigger_cluster": false
+      }
+    }
+  },
+  "release": {
+    "current_version": "voiceprint-platform-v1-test",
+    "announcement": "测试版使用当前PLDA、质量、黑产1:N和N:N阈值；初版限定单实例运行。"
+  },
+  "audio": {
+    "allowed_extensions": [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma"],
+    "max_upload_bytes": 104857600,
+    "transcript_retention_hours": 24
+  }
+}

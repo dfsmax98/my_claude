@@ -1,0 +1,113 @@
+feature_group: device_risk
+stage: preloan
+output_table: d_dq.dfs_device_risk_features_preloan_20260708
+
+sample_table:
+  preloan: d_dq.dfs_dq_fqz_base_final
+  inloan: d_dq.dfs_dz_fqz_base_final
+  primary_keys:
+    preloan: [cust_no, apply_no]
+    inloan: [cust_no, order_no, trans_seqno, rsk_log_id]
+  time_field:
+    preloan: close_datetime
+    inloan: create_datetime
+  target_fields: [fpd_k30, if_out_30d, if_out_60d, if_in_30d, if_in_60d]
+
+data_sources:
+  - name: smy_device_log
+    table: smy_pc.uld_dwd.dwd_risk_rms_rsk_device_log_di
+    join_key:
+      preloan: apply_no
+      inloan: rsk_log_id
+    time_field: device_time
+    partition_field: dt
+    filters:
+      - "device_id IS NOT NULL"
+      - "device_id NOT IN ('', '[]')"
+  
+  - name: bangsheng_fingerprint
+    table: smy_pc.uld_dwd.dwd_risk_afp_bang_sheng_fingerprint_di
+    join_key: cust_no
+    time_field: create_time
+    partition_field: dt
+    filters:
+      - "bang_sheng_dfp IS NOT NULL"
+
+features:
+  - name: smy_device_unique_cnt
+    desc: "SMY设备唯一标识数"
+    source: smy_device_log
+    agg_func: COUNT_DISTINCT
+    agg_field: device_id
+    time_window: 365d
+  - name: smy_mobile_cnt
+    desc: "移动端设备数"
+    source: smy_device_log
+    agg_func: COUNT_DISTINCT
+    agg_field: device_id
+    condition: "device_type = 'mobile'"
+    time_window: 365d
+  - name: smy_high_risk_cnt
+    desc: "高风险设备数"
+    source: smy_device_log
+    agg_func: COUNT_DISTINCT
+    agg_field: device_id
+    condition: "risk_level = 'high'"
+    time_window: 365d
+  # 基础特征: 窗口内最近一次设备行为时间(用 MAX 取最近); 距申请天数由下方 composite 计算
+  - name: smy_latest_device_time
+    desc: "最近SMY设备行为时间"
+    source: smy_device_log
+    agg_func: MAX
+    agg_field: device_time
+    time_window: 365d
+  - name: bs_device_unique_cnt
+    desc: "邦盛设备指纹唯一数"
+    source: bangsheng_fingerprint
+    agg_func: COUNT_DISTINCT
+    agg_field: bang_sheng_dfp
+    time_window: 365d
+  - name: bs_rooted_cnt
+    desc: "Root设备数"
+    source: bangsheng_fingerprint
+    agg_func: COUNT_DISTINCT
+    agg_field: bang_sheng_dfp
+    condition: "device_type = 'rooted'"
+    time_window: 365d
+  - name: bs_emulator_cnt
+    desc: "模拟器设备数"
+    source: bangsheng_fingerprint
+    agg_func: COUNT_DISTINCT
+    agg_field: bang_sheng_dfp
+    condition: "device_type = 'emulator'"
+    time_window: 365d
+  - name: bs_cross_cust_cnt
+    desc: "设备关联客户数"
+    source: bangsheng_fingerprint
+    agg_func: COUNT_DISTINCT
+    agg_field: cust_no
+    time_window: 365d
+  - name: bs_recent_30d_cnt
+    desc: "近30天新增邦盛设备数"
+    source: bangsheng_fingerprint
+    agg_func: COUNT_DISTINCT
+    agg_field: bang_sheng_dfp
+    time_window: 30d
+  - name: device_risk_flag
+    desc: "设备风险综合标识(1=高风险)"
+    type: composite
+    logic: "CASE WHEN COALESCE(smy_high_risk_cnt,0) > 0 OR COALESCE(bs_rooted_cnt,0) > 0 OR COALESCE(bs_emulator_cnt,0) > 0 THEN 1 ELSE 0 END"
+  - name: device_unstable_flag
+    desc: "设备不稳定标识(多设备+高频变更)"
+    type: composite
+    logic: "CASE WHEN COALESCE(smy_device_unique_cnt,0) > 5 AND COALESCE(bs_recent_30d_cnt,0) > 3 THEN 1 ELSE 0 END"
+  # 说明: 若需"最近设备行为距申请天数", 用基础特征 smy_latest_device_time(MAX 时间),
+  # 再在下游或此处 composite 里 DATEDIFF(样本时间, smy_latest_device_time)。
+  # 注意当前 composite 合并层仅 JOIN 各源特征表, 不含样本时间字段, 故此类需样本时间的
+  # 派生建议放到策略分析阶段或单独 SQL 处理, 避免在 composite 里引用样本表列。
+
+execution:
+  drop_first: true
+  verify_row_count: true
+  sample_verify_limit: 20
+  log_level: INFO

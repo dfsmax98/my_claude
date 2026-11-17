@@ -1,0 +1,323 @@
+{
+  "generated_at": "2026-08-22 10:31:54",
+  "evaluation": {
+    "matrix_path": "data\\processed\\kesu_1000_customer_matrix.npz",
+    "roles_path": "data\\processed\\kesu_1000_adaptive_roles.json",
+    "plda_train_path": "data\\processed\\auxiliary_recent_voiceprints_10k_role_text_v2\\customer_embeddings_v2.npz",
+    "cohort_path": "models\\backend\\customer_plda_v1\\external_cohort_snapshot.npz",
+    "record_count": 971,
+    "identity_count": 499,
+    "role_model_version": "role-text-v1-20260820"
+  },
+  "external_cohort": {
+    "record_count": 276,
+    "identity_count": 251,
+    "overlap_removed": 1,
+    "role_model_versions": {
+      "role-text-v1-20260820": 276
+    },
+    "source": "frozen_snapshot",
+    "snapshot_path": "models\\backend\\customer_plda_v1\\external_cohort_snapshot.npz"
+  },
+  "plda_training": {
+    "source_record_count": 8301,
+    "selected_record_count": 821,
+    "selected_identity_count": 234,
+    "excluded_eval_overlap_records": 17,
+    "max_identity_records": 20,
+    "min_identity_records": 3,
+    "selection": "正式角色准入且每身份 3 至 20 条",
+    "source_schema": "role_text_v2_formal",
+    "plda_dimension": 80,
+    "dimension_candidates": [
+      40,
+      60,
+      80,
+      100,
+      120
+    ],
+    "dimension_selection_folds": 5,
+    "dimension_selection_results": [
+      {
+        "dimension": 40,
+        "fold_eers": [
+          0.09314147552636584,
+          0.08673850379841952,
+          0.06057714868872248,
+          0.0905455461472843,
+          0.06466471460664355
+        ],
+        "mean_eer": 0.07913347775348714,
+        "median_eer": 0.08673850379841952
+      },
+      {
+        "dimension": 60,
+        "fold_eers": [
+          0.09398245947758878,
+          0.08270565483567724,
+          0.05577558595461626,
+          0.08658622063118568,
+          0.08619326484765208
+        ],
+        "mean_eer": 0.081048637149344,
+        "median_eer": 0.08619326484765208
+      },
+      {
+        "dimension": 80,
+        "fold_eers": [
+          0.08287696605027883,
+          0.07683770857010122,
+          0.05902515696601166,
+          0.07791185450357943,
+          0.09107614124626491
+        ],
+        "mean_eer": 0.07754556546724721,
+        "median_eer": 0.07791185450357943
+      },
+      {
+        "dimension": 100,
+        "fold_eers": [
+          0.08563269024758968,
+          0.07318894974051018,
+          0.06559426582876075,
+          0.08595645805167815,
+          0.09862810530218762
+        ],
+        "mean_eer": 0.08180009383414527,
+        "median_eer": 0.08563269024758968
+      },
+      {
+        "dimension": 120,
+        "fold_eers": [
+          0.09063103831482835,
+          0.08690921052426451,
+          0.06559426582876075,
+          0.0909234036949888,
+          0.09481259133241729
+        ],
+        "mean_eer": 0.08577410193905195,
+        "median_eer": 0.09063103831482835
+      }
+    ]
+  },
+  "quality_model": {
+    "feature_names": [
+      "log_customer_speech_seconds",
+      "log_customer_asr_chars",
+      "role_margin",
+      "role_stage_count",
+      "external_cohort_topk_mean",
+      "external_cohort_topk_std"
+    ],
+    "target_record_count": 944,
+    "target_positive_rate": 0.7372881355932204,
+    "fold_count": 5,
+    "folds": [
+      {
+        "fold": 0,
+        "train_records": 746,
+        "test_records": 204,
+        "train_positive_rate": 0.7386058981233244
+      },
+      {
+        "fold": 1,
+        "train_records": 736,
+        "test_records": 213,
+        "train_positive_rate": 0.7255434782608695
+      },
+      {
+        "fold": 2,
+        "train_records": 754,
+        "test_records": 196,
+        "train_positive_rate": 0.7360742705570292
+      },
+      {
+        "fold": 3,
+        "train_records": 774,
+        "test_records": 174,
+        "train_positive_rate": 0.748062015503876
+      },
+      {
+        "fold": 4,
+        "train_records": 766,
+        "test_records": 184,
+        "train_positive_rate": 0.737597911227154
+      }
+    ],
+    "evaluation_mode": "identity-disjoint OOF"
+  },
+  "baseline": {
+    "backend": "raw_cosine",
+    "record_count": 971,
+    "identity_count": 499,
+    "genuine_pairs": 472,
+    "impostor_pairs": 470463,
+    "eer": 0.11652552955676515,
+    "eer_threshold": 0.7588655330177838,
+    "top1_accuracy": 0.5921610169491526
+  },
+  "external_asnorm_candidates": [
+    {
+      "backend": "external_asnorm_k25",
+      "record_count": 971,
+      "identity_count": 499,
+      "genuine_pairs": 472,
+      "impostor_pairs": 470463,
+      "eer": 0.10593200974719566,
+      "eer_threshold": -1.1773340524253504,
+      "top1_accuracy": 0.6080508474576272
+    },
+    {
+      "backend": "external_asnorm_k50",
+      "record_count": 971,
+      "identity_count": 499,
+      "genuine_pairs": 472,
+      "impostor_pairs": 470463,
+      "eer": 0.10381309322871515,
+      "eer_threshold": -0.018393552268586855,
+      "top1_accuracy": 0.614406779661017
+    },
+    {
+      "backend": "external_asnorm_k100",
+      "record_count": 971,
+      "identity_count": 499,
+      "genuine_pairs": 472,
+      "impostor_pairs": 470463,
+      "eer": 0.10381309322871515,
+      "eer_threshold": 0.830406169701665,
+      "top1_accuracy": 0.6059322033898306
+    },
+    {
+      "backend": "external_asnorm_k200",
+      "record_count": 971,
+      "identity_count": 499,
+      "genuine_pairs": 472,
+      "impostor_pairs": 470463,
+      "eer": 0.10418825556879291,
+      "eer_threshold": 1.3578528340517364,
+      "top1_accuracy": 0.5995762711864406
+    }
+  ],
+  "best_external_asnorm": {
+    "backend": "external_asnorm_k50",
+    "record_count": 971,
+    "identity_count": 499,
+    "genuine_pairs": 472,
+    "impostor_pairs": 470463,
+    "eer": 0.10381309322871515,
+    "eer_threshold": -0.018393552268586855,
+    "top1_accuracy": 0.614406779661017
+  },
+  "plda_full": {
+    "backend": "plda",
+    "requested_coverage": 1.0,
+    "actual_coverage": 1.0,
+    "quality_threshold": 0.47569846013433326,
+    "record_count": 971,
+    "identity_count": 499,
+    "genuine_pairs": 472,
+    "impostor_pairs": 470463,
+    "eer": 0.0868638866465372,
+    "eer_threshold": -28.82814223649737,
+    "top1_accuracy": 0.7372881355932204
+  },
+  "best_plda_quality_subset": {
+    "backend": "plda",
+    "requested_coverage": 0.6,
+    "actual_coverage": 0.6004119464469619,
+    "quality_threshold": 0.7314997896756941,
+    "record_count": 583,
+    "identity_count": 401,
+    "genuine_pairs": 182,
+    "impostor_pairs": 169471,
+    "eer": 0.06593432530613523,
+    "eer_threshold": -26.351950917699895,
+    "top1_accuracy": 0.7884615384615384
+  },
+  "best_quality_subset_by_backend": {
+    "external_asnorm_k50": {
+      "backend": "external_asnorm_k50",
+      "requested_coverage": 0.8,
+      "actual_coverage": 0.800205973223481,
+      "quality_threshold": 0.6967562114017541,
+      "record_count": 777,
+      "identity_count": 466,
+      "genuine_pairs": 311,
+      "impostor_pairs": 301165,
+      "eer": 0.09354989784311865,
+      "eer_threshold": 0.12458952805841272,
+      "top1_accuracy": 0.6302250803858521
+    },
+    "plda": {
+      "backend": "plda",
+      "requested_coverage": 0.6,
+      "actual_coverage": 0.6004119464469619,
+      "quality_threshold": 0.7314997896756941,
+      "record_count": 583,
+      "identity_count": 401,
+      "genuine_pairs": 182,
+      "impostor_pairs": 169471,
+      "eer": 0.06593432530613523,
+      "eer_threshold": -26.351950917699895,
+      "top1_accuracy": 0.7884615384615384
+    },
+    "raw_cosine": {
+      "backend": "raw_cosine",
+      "requested_coverage": 0.8,
+      "actual_coverage": 0.800205973223481,
+      "quality_threshold": 0.6967562114017541,
+      "record_count": 777,
+      "identity_count": 466,
+      "genuine_pairs": 311,
+      "impostor_pairs": 301165,
+      "eer": 0.10289382661532549,
+      "eer_threshold": 0.7638541672176369,
+      "top1_accuracy": 0.6254019292604501
+    }
+  },
+  "best_external_asnorm_quality_subset": {
+    "backend": "external_asnorm_k50",
+    "requested_coverage": 0.8,
+    "actual_coverage": 0.800205973223481,
+    "quality_threshold": 0.6967562114017541,
+    "record_count": 777,
+    "identity_count": 466,
+    "genuine_pairs": 311,
+    "impostor_pairs": 301165,
+    "eer": 0.09354989784311865,
+    "eer_threshold": 0.12458952805841272,
+    "top1_accuracy": 0.6302250803858521
+  },
+  "best_overall_quality_subset": {
+    "backend": "plda",
+    "requested_coverage": 0.6,
+    "actual_coverage": 0.6004119464469619,
+    "quality_threshold": 0.7314997896756941,
+    "record_count": 583,
+    "identity_count": 401,
+    "genuine_pairs": 182,
+    "impostor_pairs": 169471,
+    "eer": 0.06593432530613523,
+    "eer_threshold": -26.351950917699895,
+    "top1_accuracy": 0.7884615384615384
+  },
+  "previous_same_batch_asnorm": {
+    "score_name": "asnorm_k400",
+    "quality_config": "all",
+    "coverage": 1.0,
+    "record_count": 971,
+    "identity_count": 499,
+    "genuine_pairs": 472,
+    "impostor_pairs": 470463,
+    "genuine_mean": 2.7254623726345564,
+    "genuine_p05": -1.728084944123344,
+    "impostor_mean": -2.1667293577764353,
+    "impostor_p95": 1.1635926968467054,
+    "eer": 0.09745740645610669,
+    "eer_threshold": 0.6719703931070742,
+    "tar_at_fixed": 0.9004237288135594,
+    "far_at_fixed": 0.08859357696567,
+    "top1_accuracy": 0.6313559322033898
+  },
+  "warning": "当前外部 PLDA 训练身份较少；正式上线前须用更大规模、身份隔离的新角色客户向量重训并冻结验证。"
+}

@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+#
+# lovtask-pull — List my DevTasks from the tooling API
+#
+# Usage:
+#   lovtask-pull [--include-unassigned] [--keyword <text>] [--page <n>] [--size <n>]
+#
+
+set -euo pipefail
+
+INCLUDE_UNASSIGNED=false
+KEYWORD=""
+PAGE=""
+SIZE=""
+
+print_usage() {
+  echo "Usage: lovtask-pull [--include-unassigned] [--keyword <text>] [--page <n>] [--size <n>]"
+  echo ""
+  echo "Environment:"
+  echo "  LOVBROWSER_API_URL   Backend API base URL"
+  echo "  LOVBROWSER_API_TOKEN Bearer token for API auth"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --include-unassigned)
+      INCLUDE_UNASSIGNED=true
+      shift
+      ;;
+    --keyword)
+      KEYWORD="$2"
+      shift 2
+      ;;
+    --page)
+      PAGE="$2"
+      shift 2
+      ;;
+    --size)
+      SIZE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unexpected argument '$1'" >&2
+      print_usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "${LOVBROWSER_API_URL:-}" ]]; then
+  echo "Error: LOVBROWSER_API_URL environment variable is not set" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_TOKEN:-}" ]]; then
+  echo "Error: LOVBROWSER_API_TOKEN environment variable is not set" >&2
+  exit 1
+fi
+
+urlencode() {
+  local value="${1-}"
+  local result=""
+  local char=""
+  local hex=""
+  local i=0
+
+  for (( i=0; i<${#value}; i++ )); do
+    char="${value:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-])
+        result+="$char"
+        ;;
+      ' ')
+        result+="%20"
+        ;;
+      *)
+        printf -v hex '%02X' "'$char"
+        result+="%${hex}"
+        ;;
+    esac
+  done
+
+  printf '%s' "$result"
+}
+
+PARAMS=()
+if [[ -n "$KEYWORD" ]]; then
+  PARAMS+=("keyword=$(urlencode "$KEYWORD")")
+fi
+if [[ "$INCLUDE_UNASSIGNED" == true ]]; then
+  PARAMS+=("includeUnassigned=true")
+fi
+if [[ -n "$PAGE" ]]; then
+  PARAMS+=("page=$PAGE")
+fi
+if [[ -n "$SIZE" ]]; then
+  PARAMS+=("size=$SIZE")
+fi
+
+QUERY=""
+if (( ${#PARAMS[@]} > 0 )); then
+  QUERY="?$(IFS='&'; printf '%s' "${PARAMS[*]}")"
+fi
+
+API_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/mine${QUERY}"
+
+echo "Fetching my tasks..."
+
+HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+  -X GET \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+  "$API_URL" 2>&1) || {
+  echo "Error: failed to connect to API" >&2
+  exit 1
+}
+
+HTTP_BODY=$(printf '%s\n' "$HTTP_RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s\n' "$HTTP_RESPONSE" | tail -n 1)
+
+if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
+  echo "Error: API returned HTTP $HTTP_CODE" >&2
+  [[ -n "$HTTP_BODY" ]] && echo "$HTTP_BODY" >&2
+  exit 1
+fi
+
+if command -v jq >/dev/null 2>&1; then
+  COUNT=$(echo "$HTTP_BODY" | jq -r '(.data.records // []) | length')
+  TOTAL=$(echo "$HTTP_BODY" | jq -r '.data.total // 0')
+  echo "Found $COUNT tasks (total: $TOTAL)."
+
+  if [[ "$COUNT" == "0" ]]; then
+    echo "No tasks found."
+    exit 0
+  fi
+
+  echo "$HTTP_BODY" | jq -r '
+    .data.records // []
+    | .[]
+    | "#\(.id) [\(.status // "unknown")] \(.title // "Untitled")"
+  '
+  exit 0
+fi
+
+echo "$HTTP_BODY"

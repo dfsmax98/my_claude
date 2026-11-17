@@ -1,0 +1,9 @@
+{
+  "version": "role-text-v1-20260820",
+  "metrics_path": "D:\\数据智能部\\d02206\\codex\\声纹对比\\reports\\role_text_model_20260820\\metrics.json",
+  "target_met": true,
+  "abstain_threshold": 0.8175754000000001,
+  "input": "左右声道ASR文本",
+  "output": "客服声道L/R或待复核",
+  "ground_truth": "方向规则代理标签；待人工金标复验"
+}

@@ -1,0 +1,55 @@
+﻿# 字段注释映射文件
+# 格式: 表名.字段名: 注释说明
+# 可以使用通配符 * 匹配多个表
+
+# 通用字段
+*.cust_no: 客户编号
+*.apply_no: 申请编号
+*.order_no: 订单编号
+*.trans_seqno: 交易流水号
+*.regist_date: 注册日期
+*.apply_channel: 申请渠道
+*.apply_result: 申请结果(Y=通过, N=拒绝)
+*.close_datetime: 放款时间
+*.create_date: 创建日期
+*.create_datetime: 创建时间
+*.basic_acct_limit: 基础账户额度
+
+# 客群分类
+*.cust_group_dq: 贷前客群分类(app/api/api_return)
+*.cust_group_dz: 贷中客群分类(app/api)
+*.apply_is_api: 是否API渠道(1=是, 0=否)
+*.is_2y: 是否两年以上客户(1=是, 0=否)
+*.is_half_channel: 是否半渠道(1=是, 0=否)
+
+# 逾期标签
+*.fpd_k1: 首期逾期1天(1=逾期, 0=未逾期, -1=未观察期)
+*.fpd_k4: 首期逾期4天(1=逾期, 0=未逾期, -1=未观察期)
+*.fpd_k7: 首期逾期7天(1=逾期, 0=未逾期, -1=未观察期)
+*.fpd_k10: 首期逾期10天(1=逾期, 0=未逾期, -1=未观察期)
+*.fpd_k30: 首期逾期30天(1=逾期, 0=未逾期, -1=未观察期)
+*.bill2_k30: 第2期逾期30天(1=逾期, 0=未逾期, -1=未观察期)
+*.bill3_k30: 第3期逾期30天(1=逾期, 0=未逾期, -1=未观察期)
+
+# 逾期金额
+*.fpd_k1_due_amt: 首期应还金额(K1)
+*.fpd_k1_overdue_amt: 首期逾期金额(K1)
+*.fpd_k4_due_amt: 首期应还金额(K4)
+*.fpd_k4_overdue_amt: 首期逾期金额(K4)
+*.fpd_k7_due_amt: 首期应还金额(K7)
+*.fpd_k7_overdue_amt: 首期逾期金额(K7)
+*.fpd_k10_due_amt: 首期应还金额(K10)
+*.fpd_k10_overdue_amt: 首期逾期金额(K10)
+*.fpd_k30_due_amt: 首期应还金额(K30)
+*.fpd_k30_overdue_amt: 首期逾期金额(K30)
+
+# 投诉标签
+*.if_out_30d: 30天外诉(1=投诉, 0=未投诉, -1=未观察期)
+*.if_out_60d: 60天外诉(1=投诉, 0=未投诉, -1=未观察期)
+*.if_in_30d: 30天内诉(1=投诉, 0=未投诉, -1=未观察期)
+*.if_in_60d: 60天内诉(1=投诉, 0=未投诉, -1=未观察期)
+
+# 决策结果
+*.f001_decision: 规则引擎决策1(A=通过, D=拒绝)
+*.f100_decision: 规则引擎决策2(A=通过, S=人工, D=拒绝)
+*.f002_decision: 规则引擎决策3(A=通过, D=拒绝)

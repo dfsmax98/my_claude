@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+#
+# lovtask-claim — Claim a DevTask from a meeting-task source or task pool.
+#
+# Usage:
+#   lovtask-claim --from-meeting --keyword <text> --project-id <id> [--tool <claude|codex>] [--model <model>] [--plan]
+#
+
+set -euo pipefail
+
+FROM_MEETING=false
+KEYWORD=""
+PROJECT_ID=""
+ASSIGNEE=""
+PRIORITY="medium"
+STATUS="PENDING_REVIEW"
+TOOL="claude"
+MODEL="sonnet"
+PLAN_MODE=false
+
+print_usage() {
+  echo "Usage: lovtask-claim --from-meeting --keyword <text> --project-id <id> [options]"
+  echo ""
+  echo "Options:"
+  echo "  --from-meeting          Claim by promoting a meeting task first"
+  echo "  --keyword <text>        Keyword used to find a meeting task"
+  echo "  --project-id <id>       DevTask project id used during promote"
+  echo "  --assignee <user-id>    Optional assignee user id"
+  echo "  --priority <value>      Priority for promoted task (default: medium)"
+  echo "  --status <value>        Meeting task status (default: PENDING_REVIEW)"
+  echo "  --tool <tool>           AI tool: claude or codex (default: claude)"
+  echo "  --model <model>         AI model to use (default: sonnet)"
+  echo "  --plan                  Enable plan mode"
+  echo ""
+  echo "Environment:"
+  echo "  LOVBROWSER_API_URL      Backend API base URL"
+  echo "  LOVBROWSER_API_TOKEN    Bearer token for API auth"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from-meeting)
+      FROM_MEETING=true
+      shift
+      ;;
+    --keyword)
+      KEYWORD="$2"
+      shift 2
+      ;;
+    --project-id)
+      PROJECT_ID="$2"
+      shift 2
+      ;;
+    --assignee|--assignee-id)
+      ASSIGNEE="$2"
+      shift 2
+      ;;
+    --priority)
+      PRIORITY="$2"
+      shift 2
+      ;;
+    --status)
+      STATUS="$2"
+      shift 2
+      ;;
+    --tool)
+      TOOL="$2"
+      shift 2
+      ;;
+    --model)
+      MODEL="$2"
+      shift 2
+      ;;
+    --plan)
+      PLAN_MODE=true
+      shift
+      ;;
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unexpected argument '$1'" >&2
+      print_usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "$FROM_MEETING" != true ]]; then
+  echo "Error: only --from-meeting claim flow is supported currently" >&2
+  exit 1
+fi
+
+if [[ -z "$KEYWORD" ]]; then
+  echo "Error: --keyword is required" >&2
+  exit 1
+fi
+
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "Error: --project-id is required" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_URL:-}" ]]; then
+  echo "Error: LOVBROWSER_API_URL environment variable is not set" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_TOKEN:-}" ]]; then
+  echo "Error: LOVBROWSER_API_TOKEN environment variable is not set" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required for lovtask-claim" >&2
+  exit 1
+fi
+
+if [[ ! "$PROJECT_ID" =~ ^[0-9]+$ ]]; then
+  echo "Error: --project-id must be numeric" >&2
+  exit 1
+fi
+
+if [[ -n "$ASSIGNEE" && ! "$ASSIGNEE" =~ ^[0-9]+$ ]]; then
+  echo "Error: --assignee must be numeric" >&2
+  exit 1
+fi
+
+urlencode() {
+  local value="${1-}"
+  local result=""
+  local char=""
+  local hex=""
+  local i=0
+
+  for (( i=0; i<${#value}; i++ )); do
+    char="${value:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-])
+        result+="$char"
+        ;;
+      ' ')
+        result+="%20"
+        ;;
+      *)
+        printf -v hex '%02X' "'$char"
+        result+="%${hex}"
+        ;;
+    esac
+  done
+
+  printf '%s' "$result"
+}
+
+json_escape() {
+  local value="${1-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  value="${value//$'\f'/\\f}"
+  value="${value//$'\b'/\\b}"
+  printf '%s' "$value"
+}
+
+call_api() {
+  local method="$1"
+  local url="$2"
+  local body="${3-}"
+  local response=""
+
+  if [[ -n "$body" ]]; then
+    response=$(curl -s -w "\n%{http_code}" \
+      -X "$method" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+      -d "$body" \
+      "$url" 2>&1) || {
+      echo "Error: failed to connect to API" >&2
+      exit 1
+    }
+  else
+    response=$(curl -s -w "\n%{http_code}" \
+      -X "$method" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+      "$url" 2>&1) || {
+      echo "Error: failed to connect to API" >&2
+      exit 1
+    }
+  fi
+
+  local response_body
+  local response_code
+  response_body=$(printf '%s\n' "$response" | sed '$d')
+  response_code=$(printf '%s\n' "$response" | tail -n 1)
+  if [[ "$response_code" -lt 200 || "$response_code" -ge 300 ]]; then
+    echo "Error: API returned HTTP $response_code for $method $url" >&2
+    [[ -n "$response_body" ]] && echo "$response_body" >&2
+    exit 1
+  fi
+  printf '%s' "$response_body"
+}
+
+MEETING_QUERY="status=$(urlencode "$STATUS")&keyword=$(urlencode "$KEYWORD")"
+MEETING_URL="${LOVBROWSER_API_URL%/}/v1/tooling/meeting-tasks?${MEETING_QUERY}"
+
+echo "Searching meeting tasks..."
+MEETING_BODY=$(call_api GET "$MEETING_URL")
+MEETING_COUNT=$(echo "$MEETING_BODY" | jq -r '(.data // []) | length')
+if [[ "$MEETING_COUNT" == "0" ]]; then
+  echo "No meeting tasks found for keyword: $KEYWORD" >&2
+  exit 1
+fi
+
+MEETING_TASK_ID=$(echo "$MEETING_BODY" | jq -r '(.data // [])[0].id // empty')
+MEETING_TASK_TITLE=$(echo "$MEETING_BODY" | jq -r '(.data // [])[0].title // "Untitled"')
+if [[ -z "$MEETING_TASK_ID" ]]; then
+  echo "Error: meeting task response did not include id" >&2
+  exit 1
+fi
+
+PROMOTE_FIELDS=()
+PROMOTE_FIELDS+=("  \"projectId\": $PROJECT_ID")
+if [[ -n "$ASSIGNEE" ]]; then
+  PROMOTE_FIELDS+=("  \"assigneeUserId\": $ASSIGNEE")
+fi
+if [[ -n "$PRIORITY" ]]; then
+  PROMOTE_FIELDS+=("  \"priority\": \"$(json_escape "$PRIORITY")\"")
+fi
+
+PROMOTE_BODY=$'{\n'
+for (( i=0; i<${#PROMOTE_FIELDS[@]}; i++ )); do
+  PROMOTE_BODY+="${PROMOTE_FIELDS[i]}"
+  if (( i < ${#PROMOTE_FIELDS[@]} - 1 )); then
+    PROMOTE_BODY+=$',\n'
+  else
+    PROMOTE_BODY+=$'\n'
+  fi
+done
+PROMOTE_BODY+='}'
+
+PROMOTE_URL="${LOVBROWSER_API_URL%/}/v1/tooling/meeting-tasks/${MEETING_TASK_ID}/promote"
+PROMOTE_RESPONSE=$(call_api POST "$PROMOTE_URL" "$PROMOTE_BODY")
+DEV_TASK_ID=$(echo "$PROMOTE_RESPONSE" | jq -r '
+  (.data.promoted // [])
+  | map(select(.extractedTaskId == '"$MEETING_TASK_ID"'))
+  | .[0].devTaskId // empty
+')
+if [[ -z "$DEV_TASK_ID" ]]; then
+  echo "Error: promote did not create a DevTask" >&2
+  echo "$PROMOTE_RESPONSE" >&2
+  exit 1
+fi
+
+echo "Meeting task #$MEETING_TASK_ID promoted to DevTask #$DEV_TASK_ID."
+echo "Title: $MEETING_TASK_TITLE"
+
+TASK_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/${DEV_TASK_ID}"
+TASK_RESPONSE=$(call_api GET "$TASK_URL")
+TASK_TITLE=$(echo "$TASK_RESPONSE" | jq -r '.data.task.title // .data.title // "Unknown"')
+TASK_STATUS=$(echo "$TASK_RESPONSE" | jq -r '.data.task.status // .data.status // "Unknown"')
+TASK_TYPE=$(echo "$TASK_RESPONSE" | jq -r '.data.task.type // .data.type // "Unknown"')
+TASK_PRIORITY=$(echo "$TASK_RESPONSE" | jq -r '.data.task.priority // .data.priority // "Unknown"')
+TASK_DESC=$(echo "$TASK_RESPONSE" | jq -r '.data.task.description // .data.description // ""')
+
+echo ""
+echo "=============================="
+echo "  DevTask #$DEV_TASK_ID"
+echo "=============================="
+echo "Title:    $TASK_TITLE"
+echo "Status:   $TASK_STATUS"
+echo "Type:     $TASK_TYPE"
+echo "Priority: $TASK_PRIORITY"
+if [[ -n "$TASK_DESC" ]]; then
+  echo ""
+  echo "Description:"
+  echo "$TASK_DESC"
+fi
+echo "=============================="
+
+echo ""
+echo "Marking task as executing..."
+START_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/${DEV_TASK_ID}/start"
+call_api POST "$START_URL" >/dev/null
+echo "Task moved to executing."
+
+echo ""
+echo "=============================="
+echo "  Orchestration Instructions"
+echo "=============================="
+echo ""
+echo "To continue in LovBrowser / Codex:"
+echo "  tool=$TOOL, model=$MODEL, planMode=$PLAN_MODE"
+echo ""
+echo "After completion, run:"
+echo "  lovtask-done $DEV_TASK_ID"
+echo ""
+echo "=============================="

@@ -1,0 +1,14 @@
+# 凭证文件 —— 绝不提交
+.env
+*.env
+!.env.example
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行产物 / 日志
+*.log
+_temp/
+logs/

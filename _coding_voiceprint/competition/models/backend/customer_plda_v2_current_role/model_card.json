@@ -1,0 +1,28 @@
+{
+  "model_name": "customer-plda-v2-current-role",
+  "created_at": "2026-08-22T10:31:00+08:00",
+  "role_model_version": "role-text-v1-20260820",
+  "embedding_model_version": "campp_funasr_ms",
+  "training_source": "data/processed/auxiliary_recent_voiceprints_10k_role_text_v2/customer_embeddings_v2.npz",
+  "training_selection": {
+    "minimum_identity_records": 3,
+    "selected_records": 821,
+    "selected_identities": 234,
+    "evaluation_identity_overlap_removed": 17,
+    "plda_dimension": 80
+  },
+  "evaluation": {
+    "record_count": 971,
+    "identity_count": 499,
+    "full_coverage_eer": 0.0868638866465372,
+    "quality_coverage": 0.6004119464469619,
+    "quality_subset_eer": 0.06593432530613523,
+    "quality_threshold": 0.7314997896756941
+  },
+  "decision_thresholds": {
+    "self_reject_below": -41.62520980834961,
+    "self_accept_at_or_above": -14.513204574584961,
+    "note": "冻结集质量子集的同人P05与异人P99，仅供本地试运行，生产前需独立业务真值复标"
+  },
+  "status": "challenger"
+}

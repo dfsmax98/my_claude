@@ -1,0 +1,97 @@
+﻿# strategy-analysis Skill 配置文件
+# 参考: skill/table-explorer/config.yaml
+
+# ========== 数据库连接配置 ==========
+# 所有 host/user/password 均从环境变量读取(见 skill 根目录 .env / .env.example)。
+# 配置文件里不保留任何明文凭证。${VAR} 由 config_loader 展开为 os.getenv(VAR)。
+db:
+  # Impala
+  impala_host: ${IMPALA_HOST}
+  impala_port: ${IMPALA_PORT}
+  impala_user: ${IMPALA_USER}
+  impala_password: ${IMPALA_PASSWORD}
+  impala_database: default
+  impala_auth_mechanism: PLAIN
+
+  # StarRocks (主用)
+  starrocks_host: ${SA_SR_HOST}
+  starrocks_port: ${SA_SR_PORT}
+  starrocks_user: ${SA_SR_USER}
+  starrocks_password: ${SA_SR_PASSWORD}
+  starrocks_database: d_dq
+
+# 注意: 原文件此处有两个重复的 db_profiles 键(后者覆盖前者), 已合并为一个。
+db_profiles:
+  # 开发环境
+  dev:
+    starrocks_host: ${SA_SR_HOST}
+    starrocks_port: ${SA_SR_PORT}
+    starrocks_user: ${SA_SR_USER}
+    starrocks_password: ${SA_SR_PASSWORD}
+    starrocks_database: d_dq
+
+  # 生产环境
+  prod:
+    starrocks_host: ${SR_PROD_HOST}
+    starrocks_port: ${SR_PROD_PORT}
+    starrocks_user: ${SR_PROD_USER}
+    starrocks_password: ${SR_PROD_PASSWORD}
+    starrocks_database: d_dq_prod
+
+# ========== 策略分析配置 ==========
+strategy_analysis:
+  # 默认场景: dq=贷前, dz=贷中
+  default_scene: dq
+  
+  # 目标变量配置
+  y_targets:
+    - fpd_k30          # 首逾30天 (主目标)
+    - if_out_30d       # 30天投诉
+    - if_out_60d       # 60天投诉 (可选)
+  
+  # 特征评估阈值
+  evaluation:
+    iv_threshold: 0.02        # IV最小值 (特征区分度)
+    psi_threshold: 0.25       # PSI最大值 (特征稳定性)
+    lift_threshold: 2.0       # Lift最小值 (风险提升)
+    time_split: month         # 时间切片: month/week/day
+    n_bins: 20                # 分箱数量 (IV/PSI计算)
+  
+  # 策略挖掘约束
+  mining:
+    max_features_per_strategy: 3    # 策略最多包含的特征数
+    operator_restriction:           # 允许的操作符 (仅单方向判断)
+      - ">"
+      - "<"
+    min_bad: 10                     # 策略命中坏样本最小值
+    min_coverage_pct: 0.001         # 最小覆盖率 0.1%
+    max_coverage_pct: 0.20          # 最大覆盖率 20%
+    dedup_jaccard: 0.85             # 策略去重相似度阈值
+  
+  # Step2验证配置
+  validation:
+    step2_days: 7                   # 验证数据时间窗口(天)
+    pass_rate_impact_threshold: 0.05  # 通过率影响阈值 (>5%标记高风险)
+    stability_psi_threshold: 0.25     # 稳定性PSI阈值
+  
+  # 报告输出配置
+  output:
+    report_dir: reports                     # 报告输出目录
+    chinese_headers: true                   # 使用中文表头
+    include_summary: true                   # 包含自动总结
+    top_n_features: 50                      # 报告展示Top N特征
+    top_n_strategies: 30                    # 报告展示Top N策略
+    excel_engine: openpyxl                  # Excel引擎
+  
+  # 测试表配置 (功能验证用)
+  test_tables:
+    dq: d_dq.dfs_anormal_beh_dq_online_features   # 贷前测试表
+    dz: d_dq.dfs_anormal_beh_dz_online_features   # 贷中测试表
+
+# ========== 日志配置 ==========
+logging:
+  level: INFO
+  format: "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+  file: logs/strategy_analysis.log
+  max_size_mb: 100
+  backup_count: 5

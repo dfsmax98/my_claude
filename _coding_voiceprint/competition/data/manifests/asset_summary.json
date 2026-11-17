@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-08-22T10:56:38+08:00",
+  "raw_audio": {
+    "file_count": 985,
+    "total_bytes": 1162059696,
+    "aggregate_sha256": "91faf8cbd2db6556c19ed9446e2df70ffb88b2fadc037b5fd5a08a852aecde82",
+    "private_manifest": "kesu_1000_private.csv"
+  },
+  "models": {
+    "file_count": 67,
+    "total_bytes": 2383139559,
+    "aggregate_sha256": "a0cdc6f3642da5709d77e6dfe21f17ebec221a90fac507a35286044aefe35ecd",
+    "manifest": "model_assets.json"
+  }
+}

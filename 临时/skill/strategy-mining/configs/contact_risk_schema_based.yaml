@@ -1,0 +1,181 @@
+﻿# 通讯录反欺诈特征配置 - 修正partition_field版
+# 注意: d_dq.dfs_dq_fqz_base_final 表无dt分区字段，已移除partition过滤
+
+feature_group: contact_risk_schema_based
+
+output_table: d_dq.dfs_contact_risk_schema_based
+
+sample_table:
+  preloan: d_dq.dfs_dq_fqz_base_final
+  inloan: d_dq.dfs_dz_fqz_base_final
+  primary_keys:
+    preloan: [cust_no, apply_no]
+    inloan: [cust_no, order_no, trans_seqno, rsk_log_id]
+  time_field:
+    preloan: close_datetime
+    inloan: create_datetime
+  target_fields:
+    preloan: [apply_result, cust_group_dq, fpd_k30, if_out_30d, if_out_60d, if_in_30d, if_in_60d, f001_decision]
+    inloan: [risk_decision_result, cust_group_dz, new_old, fpd_k30, if_out_30d, if_out_60d, if_in_30d, if_in_60d]
+  other_groupby_fields:
+    preloan: []
+    inloan: []
+  # partition_field: dt  # 注释掉: 样本表无此字段
+
+database:
+  account: starrocks_mysql
+
+data_sources:
+  - name: contacts
+    table: default.t_bd_cust_relation_info
+    join_field: cust_no
+    time_field: create_datetime
+    partition_field: dt  # 通讯录表有dt分区
+    select_fields: [cust_no, relation_mobile_no, relation_type, relation_name, create_datetime, dt]
+    filters:
+      - relation_mobile_no IS NOT NULL
+      - relation_mobile_no != ''
+  
+  - name: immediate
+    table: default.t_cif_cst_cust_immediate_relation_info
+    join_field: cust_no
+    time_field: create_datetime
+    partition_field: dt  # 紧急联系人表有dt分区
+    select_fields: [cust_no, relation_mobile_no, relation_telephone, relation_type, relation_name, check_status, urgent_contact_flag, create_datetime, dt]
+    filters:
+      - relation_mobile_no IS NOT NULL
+
+features:
+  - name: contact_total_cnt
+    desc: 通讯录联系人总数
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    window: 365d
+  
+  - name: contact_unique_type_cnt
+    desc: 通讯录关系类型数量
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_type
+    window: 365d
+  
+  - name: contact_named_cnt
+    desc: 有姓名的联系人数量
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    condition: relation_name IS NOT NULL AND relation_name != ''
+    window: 365d
+  
+  - name: immediate_total_cnt
+    desc: 紧急联系人总数
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    window: 365d
+  
+  - name: immediate_urgent_cnt
+    desc: 标记为紧急的联系人数量
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    condition: urgent_contact_flag = '1'
+    window: 365d
+  
+  - name: immediate_relation_type_cnt
+    desc: 紧急联系人关系类型数
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: relation_type
+    window: 365d
+  
+  - name: contact_valid_phone_cnt
+    desc: 11位手机号联系人数量
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    condition: LENGTH(relation_mobile_no) = 11
+    window: 365d
+  
+  - name: immediate_checked_real_cnt
+    desc: 检验为实号的紧急联系人
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    condition: check_status = '0'
+    window: 365d
+  
+  - name: immediate_checked_invalid_cnt
+    desc: 检验为空号的紧急联系人
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    condition: check_status = '1'
+    window: 365d
+  
+  - name: contact_suspicious_phone_cnt
+    desc: 可疑号码联系人
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    condition: LENGTH(relation_mobile_no) != 11
+    window: 365d
+  
+  - name: contact_recent_7d_cnt
+    desc: 近7天新增联系人
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    window: 7d
+  
+  - name: contact_recent_30d_cnt
+    desc: 近30天新增联系人
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    window: 30d
+  
+  - name: contact_recent_90d_cnt
+    desc: 近90天新增联系人
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    window: 90d
+  
+  - name: immediate_recent_30d_cnt
+    desc: 近30天新增紧急联系人
+    source: immediate
+    agg: COUNT_DISTINCT
+    field: relation_mobile_no
+    window: 30d
+  
+  - name: contact_valid_ratio
+    desc: 有效手机号占比
+    type: composite
+    logic: CASE WHEN contact_total_cnt > 0 THEN CAST(contact_valid_phone_cnt AS DECIMAL(10,4)) / contact_total_cnt ELSE 0 END
+  
+  - name: immediate_valid_ratio
+    desc: 紧急联系人实号占比
+    type: composite
+    logic: CASE WHEN immediate_total_cnt > 0 THEN CAST(immediate_checked_real_cnt AS DECIMAL(10,4)) / immediate_total_cnt ELSE 0 END
+  
+  - name: immediate_quality_issue_flag
+    desc: 紧急联系人质量异常
+    type: composite
+    logic: CASE WHEN immediate_total_cnt > 0 AND CAST(immediate_checked_invalid_cnt AS DECIMAL(10,4)) / immediate_total_cnt > 0.5 THEN 1 ELSE 0 END
+  
+  - name: contact_sudden_add_flag
+    desc: 通讯录突增标识
+    type: composite
+    logic: CASE WHEN contact_recent_7d_cnt > 2 * (contact_recent_30d_cnt / 4) AND contact_recent_7d_cnt > 5 THEN 1 ELSE 0 END
+  
+  - name: contact_comprehensive_flag
+    desc: 通讯录综合异常标识
+    type: composite
+    logic: CASE WHEN contact_total_cnt = 0 OR contact_valid_ratio < 0.5 OR contact_suspicious_phone_cnt > 10 THEN 1 ELSE 0 END
+
+execution:
+  drop_first: true
+  verify: true
+  sample_limit: 20

@@ -1,0 +1,14 @@
+﻿feature_name,feature_desc,feature_type,time_window
+smy_device_unique_cnt,SMY设备唯一标识数,int,365d
+smy_mobile_cnt,移动端设备数,int,365d
+smy_high_risk_cnt,高风险设备数,int,365d
+smy_latest_device_days,最近SMY设备行为距申请天数,int,-
+smy_login_cnt,登录操作设备数,int,365d
+bs_device_unique_cnt,邦盛设备指纹唯一数,int,365d
+bs_rooted_cnt,Root设备数,int,365d
+bs_emulator_cnt,模拟器设备数,int,365d
+bs_abnormal_cnt,异常设备数(rooted/emulator/proxy),int,365d
+bs_cross_cust_cnt,设备关联客户数,int,365d
+bs_recent_30d_cnt,近30天新增邦盛设备数,int,30d
+device_risk_flag,设备风险综合标识(1=高风险),boolean,-
+device_unstable_flag,设备不稳定标识(多设备+高频变更),boolean,-

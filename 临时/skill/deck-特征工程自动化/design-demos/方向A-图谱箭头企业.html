@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>反欺诈特征工程自动化 · 方向A</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8FA;
+    --white:#FFFFFF;
+    --blue:#1256E0;
+    --blue2:#2D5BFF;
+    --teal:#00B8A9;
+    --orange:#FF6B2C;
+    --ink:#0E1524;
+    --ink2:#3A4356;
+    --muted:#6B7488;
+    --line:#E1E5EC;
+    --line2:#D2D8E2;
+    --agentbg:#EEF3FF;
+    --scriptbg:#E8FAF7;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{background:#0B0E14;font-family:'Inter',system-ui,sans-serif;}
+  .stage{
+    display:flex;flex-direction:column;align-items:center;
+    gap:40px;padding:48px 0;
+  }
+  .slide{
+    width:1920px;height:1080px;position:relative;overflow:hidden;
+    background:var(--bg);color:var(--ink);flex:none;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .tnum{font-variant-numeric:tabular-nums;}
+
+  /* ============ SHARED ============ */
+  .pad{position:absolute;inset:0;padding:96px 120px;}
+  .kicker{
+    display:inline-flex;align-items:center;gap:12px;
+    font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--blue);
+  }
+  .kicker .dot{width:9px;height:9px;border-radius:50%;background:var(--blue);}
+  .kicker.teal{color:var(--teal);}.kicker.teal .dot{background:var(--teal);}
+
+  /* ============ SLIDE 1 · COVER ============ */
+  #s1 .pad{padding:0;}
+  #s1 .grid-lines{
+    position:absolute;inset:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:80px 80px;opacity:.5;
+    -webkit-mask-image:radial-gradient(ellipse 70% 70% at 78% 45%,#000 0%,transparent 72%);
+            mask-image:radial-gradient(ellipse 70% 70% at 78% 45%,#000 0%,transparent 72%);
+  }
+  #s1 .side{
+    position:absolute;left:0;top:0;bottom:0;width:8px;background:var(--blue);
+  }
+  #s1 .content{position:absolute;left:120px;top:150px;width:900px;}
+  #s1 .brandrow{display:flex;align-items:center;gap:16px;margin-bottom:56px;}
+  #s1 .logo{
+    width:52px;height:52px;border:2.5px solid var(--blue);border-radius:12px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #s1 .brandtxt{font-weight:800;font-size:19px;letter-spacing:.02em;color:var(--ink);}
+  #s1 .brandtxt span{color:var(--muted);font-weight:500;}
+  #s1 h1{
+    font-size:104px;line-height:1.02;font-weight:900;letter-spacing:-.02em;color:var(--ink);
+    margin-bottom:26px;
+  }
+  #s1 h1 .accent{color:var(--blue);}
+  #s1 .sub{
+    font-size:34px;font-weight:600;color:var(--ink2);margin-bottom:52px;
+    display:flex;align-items:center;gap:18px;
+  }
+  #s1 .sub .bar{width:44px;height:4px;background:var(--teal);border-radius:2px;}
+
+  #s1 .flowcard{
+    background:var(--white);border:1px solid var(--line);border-radius:20px;
+    padding:34px 38px;width:820px;
+    box-shadow:0 24px 60px -30px rgba(18,86,224,.28);
+  }
+  #s1 .flowcard .lbl{
+    font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:20px;
+  }
+  #s1 .utter{
+    display:inline-block;background:var(--bg);border:1px dashed var(--line2);
+    border-radius:12px;padding:14px 22px;font-size:22px;font-weight:600;color:var(--ink2);
+    margin-bottom:22px;
+  }
+  #s1 .utter b{color:var(--blue);font-weight:800;}
+  #s1 .chiprow{display:flex;align-items:center;flex-wrap:wrap;gap:12px;}
+  #s1 .chip{
+    display:inline-flex;align-items:center;gap:9px;
+    background:var(--agentbg);border:1px solid #CFDCFF;border-radius:999px;
+    padding:11px 18px;font-size:16px;font-weight:600;color:var(--blue);
+  }
+  #s1 .chip svg{width:18px;height:18px;}
+  #s1 .arw{color:var(--line2);display:flex;align-items:center;}
+  #s1 .arw svg{width:22px;height:22px;}
+
+  #s1 .footer{
+    position:absolute;left:120px;bottom:74px;
+    display:flex;align-items:center;gap:16px;
+    font-family:'IBM Plex Mono',monospace;font-size:16px;letter-spacing:.1em;color:var(--muted);
+  }
+  #s1 .footer .sep{color:var(--line2);}
+  #s1 .footer .ver{color:var(--teal);font-weight:600;}
+
+  /* cover visual anchor: architecture / arrow motif (right) */
+  #s1 .anchor{
+    position:absolute;right:130px;top:50%;transform:translateY(-50%);
+    width:620px;
+  }
+  #s1 .anchor .layer{
+    background:var(--white);border:1px solid var(--line);border-radius:16px;
+    padding:22px 26px;margin-bottom:0;position:relative;
+    display:flex;align-items:center;gap:20px;
+    box-shadow:0 18px 44px -34px rgba(14,21,36,.5);
+  }
+  #s1 .anchor .layer + .layer{margin-top:52px;}
+  #s1 .anchor .connect{
+    position:absolute;left:50%;top:100%;transform:translateX(-50%);
+    width:2.5px;height:52px;background:var(--line2);z-index:2;
+  }
+  #s1 .anchor .connect::after{
+    content:"";position:absolute;left:50%;bottom:-2px;transform:translateX(-50%);
+    border-left:7px solid transparent;border-right:7px solid transparent;
+    border-top:9px solid var(--blue);
+  }
+  #s1 .anchor .layer .ico{
+    width:56px;height:56px;border-radius:13px;flex:none;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--agentbg);color:var(--blue);
+  }
+  #s1 .anchor .layer .ico.tealico{background:var(--scriptbg);color:var(--teal);}
+  #s1 .anchor .layer .ico svg{width:30px;height:30px;}
+  #s1 .anchor .layer .tt{font-size:22px;font-weight:800;color:var(--ink);}
+  #s1 .anchor .layer .ds{font-size:15px;color:var(--muted);margin-top:3px;font-weight:500;}
+  #s1 .anchor .badge{
+    margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;
+    letter-spacing:.1em;padding:6px 11px;border-radius:7px;
+    background:var(--agentbg);color:var(--blue);
+  }
+  #s1 .anchor .badge.s{background:var(--scriptbg);color:var(--teal);}
+
+  /* ============ SLIDE 2 · 5-STEP FLOW ============ */
+  #s2 .head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:8px;}
+  #s2 h2{font-size:58px;font-weight:900;letter-spacing:-.02em;color:var(--ink);margin-top:16px;}
+  #s2 .legend{display:flex;gap:26px;align-items:center;padding-bottom:8px;}
+  #s2 .lg{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;color:var(--ink2);}
+  #s2 .lg .sw{width:16px;height:16px;border-radius:5px;}
+  #s2 .lg .sw.a{background:var(--blue);}
+  #s2 .lg .sw.s{background:var(--teal);}
+
+  #s2 .flow{
+    display:flex;align-items:stretch;gap:0;margin-top:70px;
+  }
+  #s2 .step{flex:1;position:relative;display:flex;flex-direction:column;}
+  #s2 .connector{
+    flex:none;width:44px;display:flex;align-items:center;justify-content:center;
+    color:var(--line2);
+  }
+  #s2 .connector svg{width:30px;height:30px;}
+
+  #s2 .card{
+    background:var(--white);border:1px solid var(--line);border-radius:18px;
+    padding:26px 22px 24px;flex:1;display:flex;flex-direction:column;
+    position:relative;border-top:5px solid var(--blue);
+    box-shadow:0 20px 44px -34px rgba(14,21,36,.45);
+  }
+  #s2 .card.script{border-top-color:var(--teal);}
+  #s2 .card .topline{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+  #s2 .card .num{
+    font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;
+    color:var(--muted);letter-spacing:.05em;
+  }
+  #s2 .card .who{
+    display:inline-flex;align-items:center;gap:7px;
+    font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.08em;
+    padding:6px 11px;border-radius:999px;
+    background:var(--agentbg);color:var(--blue);text-transform:uppercase;
+  }
+  #s2 .card.script .who{background:var(--scriptbg);color:var(--teal);}
+  #s2 .card .who .d{width:7px;height:7px;border-radius:50%;background:currentColor;}
+
+  #s2 .card .ico{
+    width:60px;height:60px;border-radius:14px;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--agentbg);color:var(--blue);margin-bottom:20px;
+  }
+  #s2 .card.script .ico{background:var(--scriptbg);color:var(--teal);}
+  #s2 .card .ico svg{width:32px;height:32px;}
+
+  #s2 .card .tt{font-size:25px;font-weight:800;color:var(--ink);line-height:1.15;margin-bottom:12px;}
+  #s2 .card .ds{font-size:15px;line-height:1.55;color:var(--ink2);font-weight:500;}
+  #s2 .card .tag{
+    margin-top:auto;padding-top:16px;font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;color:var(--muted);letter-spacing:.02em;
+    border-top:1px dashed var(--line2);margin-top:18px;
+  }
+  #s2 .card .core{
+    position:absolute;top:-13px;right:18px;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.1em;
+    background:var(--orange);color:#fff;padding:4px 10px;border-radius:6px;
+  }
+  #s2 .isorow{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;}
+  #s2 .isorow .pill{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;
+    background:var(--bg);border:1px solid var(--line);border-radius:7px;
+    padding:5px 9px;color:var(--ink2);
+  }
+
+  /* bottom dual-table note */
+  #s2 .note{
+    margin-top:64px;background:var(--white);border:1px solid var(--line);border-radius:18px;
+    padding:30px 36px;display:flex;align-items:stretch;gap:0;
+    box-shadow:0 18px 40px -34px rgba(14,21,36,.4);
+  }
+  #s2 .note .nhead{
+    display:flex;align-items:center;gap:14px;flex:none;width:280px;padding-right:34px;
+    border-right:1px solid var(--line);
+  }
+  #s2 .note .nhead .nico{
+    width:52px;height:52px;border-radius:12px;flex:none;
+    background:#EEF3FF;color:var(--blue);display:flex;align-items:center;justify-content:center;
+  }
+  #s2 .note .nhead .nico svg{width:28px;height:28px;}
+  #s2 .note .nhead .ntt{font-size:22px;font-weight:800;color:var(--ink);}
+  #s2 .note .nhead .nsub{font-size:14px;color:var(--muted);font-weight:500;margin-top:2px;}
+  #s2 .note .cols{display:flex;flex:1;gap:34px;padding-left:34px;}
+  #s2 .note .col{flex:1;display:flex;gap:16px;align-items:flex-start;}
+  #s2 .note .col .mk{
+    flex:none;margin-top:3px;width:14px;height:14px;border-radius:4px;
+  }
+  #s2 .note .col.a .mk{background:var(--blue);}
+  #s2 .note .col.s .mk{background:var(--teal);}
+  #s2 .note .col .ct{font-size:19px;font-weight:800;color:var(--ink);margin-bottom:5px;}
+  #s2 .note .col .ct .code{font-family:'IBM Plex Mono',monospace;font-size:15px;color:var(--blue);font-weight:600;}
+  #s2 .note .col.s .ct .code{color:var(--teal);}
+  #s2 .note .col .cd{font-size:15px;line-height:1.5;color:var(--ink2);font-weight:500;}
+  #s2 .note .col .cd b{color:var(--ink);font-weight:700;}
+
+  #s2 .footmark{
+    position:absolute;right:120px;bottom:44px;
+    font-family:'IBM Plex Mono',monospace;font-size:14px;letter-spacing:.1em;color:var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- ============ SLIDE 1 · COVER ============ -->
+  <section class="slide" id="s1">
+    <div class="grid-lines"></div>
+    <div class="side"></div>
+    <div class="pad">
+      <div class="content">
+        <div class="brandrow">
+          <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#1256E0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="28" height="28">
+              <path d="M3 12h4l2-6 4 12 2-6h6"/>
+            </svg>
+          </div>
+          <div class="brandtxt">反欺诈策略 · 特征工程 <span>/ Auto-Mining Pipeline</span></div>
+        </div>
+
+        <h1>反欺诈<span class="accent">特征工程</span><br>自动化</h1>
+        <div class="sub"><span class="bar"></span>Agent 自动挖掘 Pipeline</div>
+
+        <div class="flowcard">
+          <div class="lbl">从一句话到一整条流水线</div>
+          <div class="utter">「进行 <b>applist</b> 特征挖掘」</div>
+          <div class="chiprow">
+            <span class="chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              查字典
+            </span>
+            <span class="arw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></span>
+            <span class="chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-5 0V4.5A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 22a2.5 2.5 0 0 1-2.5-2.5"/><path d="M12 12h5.5a2.5 2.5 0 0 1 0 5"/></svg>
+              查表脑暴
+            </span>
+            <span class="arw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></span>
+            <span class="chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+              建表
+            </span>
+            <span class="arw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></span>
+            <span class="chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-6"/></svg>
+              特征评估
+            </span>
+            <span class="arw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></span>
+            <span class="chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M12 8 6 14"/><path d="m12 8 6 6"/><circle cx="12" cy="2" r="0"/><circle cx="6" cy="16" r="2.5"/><circle cx="18" cy="16" r="2.5"/><path d="M6 18.5v1"/><path d="M18 18.5v1"/></svg>
+              策略分析
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- right architecture anchor -->
+      <div class="anchor">
+        <div class="layer">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></div>
+          <div>
+            <div class="tt">自然语言指令</div>
+            <div class="ds">一句大白话触发全流程</div>
+          </div>
+          <div class="badge">USER</div>
+          <div class="connect"></div>
+        </div>
+        <div class="layer">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M20 9h2"/><path d="M20 15h2"/><path d="M2 9h2"/><path d="M2 15h2"/></svg></div>
+          <div>
+            <div class="tt">Agent 编排层</div>
+            <div class="ds">查字典 · 探表 · 设计特征 · 写 YAML</div>
+          </div>
+          <div class="badge">AGENT</div>
+          <div class="connect"></div>
+        </div>
+        <div class="layer">
+          <div class="ico tealico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/><line x1="13" y1="4" x2="11" y2="20"/></svg></div>
+          <div>
+            <div class="tt">脚本执行层</div>
+            <div class="ds">建 4 表 · 特征评估 · 策略挖掘</div>
+          </div>
+          <div class="badge s">SCRIPT</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>Fraud Feature Engineering</span>
+        <span class="sep">·</span>
+        <span>Auto-Mining</span>
+        <span class="sep">·</span>
+        <span class="ver">v1</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 2 · 5-STEP FLOW ============ -->
+  <section class="slide" id="s2">
+    <div class="pad">
+      <div class="head">
+        <div>
+          <span class="kicker"><span class="dot"></span>END-TO-END PIPELINE</span>
+          <h2>五步自动化流程</h2>
+        </div>
+        <div class="legend">
+          <span class="lg"><span class="sw a"></span>Agent 步骤（创造性）</span>
+          <span class="lg"><span class="sw s"></span>脚本步骤（确定性）</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <!-- Step 1 -->
+        <div class="step">
+          <div class="card">
+            <div class="topline">
+              <span class="num">STEP 01</span>
+              <span class="who"><span class="d"></span>AGENT</span>
+            </div>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+            <div class="tt">查字典</div>
+            <div class="ds">读取现有特征字典，比对已衍生口径，从源头避免重复造轮子。</div>
+            <div class="tag">// feature_dict · dedup</div>
+          </div>
+        </div>
+
+        <div class="connector"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+
+        <!-- Step 2 -->
+        <div class="step">
+          <div class="card">
+            <div class="core">CORE</div>
+            <div class="topline">
+              <span class="num">STEP 02</span>
+              <span class="who"><span class="d"></span>AGENT</span>
+            </div>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-5 0V4.5A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 22a2.5 2.5 0 0 1-2.5-2.5"/><path d="M12 12h5.5a2.5 2.5 0 0 1 0 5"/></svg></div>
+            <div class="tt">查表 · 脑暴 · 写配置</div>
+            <div class="ds">探查底层数据表，设计有区分度的特征口径，落地为 YAML 配置。</div>
+            <div class="isorow"><span class="pill">explore</span><span class="pill">design</span><span class="pill">config.yaml</span></div>
+            <div class="tag">// 核心创造性环节</div>
+          </div>
+        </div>
+
+        <div class="connector"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+
+        <!-- Step 3 -->
+        <div class="step">
+          <div class="card script">
+            <div class="topline">
+              <span class="num">STEP 03</span>
+              <span class="who"><span class="d"></span>SCRIPT</span>
+            </div>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></div>
+            <div class="tt">建 4 张表</div>
+            <div class="ds">按配置批量建表，覆盖两维度组合。</div>
+            <div class="isorow"><span class="pill">labeled × 贷前</span><span class="pill">labeled × 贷中</span><span class="pill">recent7d × 贷前</span><span class="pill">recent7d × 贷中</span></div>
+            <div class="tag">// 2 客群 × 2 阶段</div>
+          </div>
+        </div>
+
+        <div class="connector"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+
+        <!-- Step 4 -->
+        <div class="step">
+          <div class="card script">
+            <div class="topline">
+              <span class="num">STEP 04</span>
+              <span class="who"><span class="d"></span>SCRIPT</span>
+            </div>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-6"/></svg></div>
+            <div class="tt">特征评估</div>
+            <div class="ds">量化区分度与稳定性，分月 + 分客群交叉验证。</div>
+            <div class="isorow"><span class="pill tnum">IV</span><span class="pill tnum">KS</span><span class="pill tnum">PSI</span><span class="pill">最大风险倍数</span></div>
+            <div class="tag">// by month × by segment</div>
+          </div>
+        </div>
+
+        <div class="connector"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+
+        <!-- Step 5 -->
+        <div class="step">
+          <div class="card script">
+            <div class="topline">
+              <span class="num">STEP 05</span>
+              <span class="who"><span class="d"></span>SCRIPT</span>
+            </div>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v5"/><path d="M12 8 6 13"/><path d="m12 8 6 5"/><circle cx="6" cy="15" r="2.4"/><circle cx="18" cy="15" r="2.4"/><path d="M6 17.4v1.6"/><path d="M18 17.4v1.6"/><circle cx="12" cy="3" r="1.6" fill="currentColor" stroke="none"/></svg></div>
+            <div class="tt">策略分析</div>
+            <div class="ds">决策树自动挖掘单变量 / 多变量组合策略，产出可落地规则。</div>
+            <div class="isorow"><span class="pill">单变量</span><span class="pill">多变量</span><span class="pill">decision tree</span></div>
+            <div class="tag">// rule mining</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- dual table note -->
+      <div class="note">
+        <div class="nhead">
+          <div class="nico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="18" rx="1.5"/><rect x="13" y="3" width="8" height="18" rx="1.5"/></svg></div>
+          <div>
+            <div class="ntt">双表分工</div>
+            <div class="nsub">Two-Table Split</div>
+          </div>
+        </div>
+        <div class="cols">
+          <div class="col a">
+            <span class="mk"></span>
+            <div>
+              <div class="ct">labeled 表 <span class="code">（含 fpd_k30）</span></div>
+              <div class="cd">有表现期 y 标签 → 用于<b>特征评估</b>与 <b>y 标签影响</b>分析，衡量对坏客户的区分能力。</div>
+            </div>
+          </div>
+          <div class="col s">
+            <span class="mk"></span>
+            <div>
+              <div class="ct">recent7d 表 <span class="code">（近 7 天）</span></div>
+              <div class="cd">无表现期但覆盖最新样本 → 用于评估策略上线后的<b>拒绝率影响</b>，控制误伤。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footmark">Fraud Feature Engineering · Auto-Mining · v1</div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

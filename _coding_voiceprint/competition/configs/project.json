@@ -1,0 +1,58 @@
+{
+  "project_name": "anti_fraud_voiceprint_competition",
+  "sample_set": {
+    "name": "kesu_1000",
+    "actual_recordings": 985,
+    "raw_audio_dir": "data/raw/kesu_1000",
+    "channel_embeddings": "data/processed/kesu_1000_channel_embeddings.npz",
+    "customer_matrix": "data/processed/kesu_1000_customer_matrix.npz",
+    "role_results": "data/processed/kesu_1000_adaptive_roles.json"
+  },
+  "auxiliary_sources": [
+    {
+      "name": "recent_voiceprints_10k_role_text_v2",
+      "source_recordings": 10000,
+      "eligible_embeddings": 8301,
+      "identity_count": 6932,
+      "embedding_path": "data/processed/auxiliary_recent_voiceprints_10k_role_text_v2/customer_embeddings_v2.npz",
+      "role_results_path": "data/processed/auxiliary_recent_voiceprints_10k_role_text_v2/role_results.json",
+      "manifest_path": "data/manifests/auxiliary_voiceprints_10k_role_text_v2.json",
+      "role_model_version": "role-text-v1-20260820",
+      "embedding_model_version": "campp_funasr_ms",
+      "embedding_dimension": 192,
+      "usage": [
+        "plda_training_candidate",
+        "asnorm_cohort_candidate",
+        "embedding_quality_training_candidate"
+      ],
+      "identity_overlap_policy": "exclude_evaluation_and_test_identities"
+    }
+  ],
+  "models": {
+    "role_model": "role-text-v1-20260820",
+    "role_model_path": "models/role/role_text_v1_20260820/role_text_model.joblib",
+    "embedding_model": "CAM++",
+    "embedding_model_version": "cam++-funasr-ms",
+    "embedding_dimension": 192,
+    "plda_model": "models/backend/customer_plda_v1/plda_model.npz",
+    "quality_model": "models/backend/customer_plda_v1/embedding_quality_model.npz",
+    "modelscope_cache": "models/runtime/modelscope"
+  },
+  "outputs": {
+    "reports": "reports",
+    "temporary": "_temp"
+  },
+  "platform": {
+    "config": "configs/platform.json",
+    "service_entry": "src/web/app.py",
+    "backend_dir": "models/backend/customer_plda_v2_current_role",
+    "state_dir": "data/processed/platform"
+  },
+  "baseline": {
+    "raw_cosine_eer": 0.11652552955676515,
+    "external_asnorm_eer": 0.10381309322871515,
+    "plda_eer": 0.07415251310132027,
+    "plda_quality_eer": 0.0564097570807198,
+    "plda_quality_coverage": 0.6004119464469619
+  }
+}

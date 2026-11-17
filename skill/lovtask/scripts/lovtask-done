@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+#
+# lovtask-done — Report task completion to LovBrowser DevTask API
+#
+# Auto-detects git branch and latest commit unless --no-git is used, then calls the complete API.
+#
+# Usage:
+#   lovtask-done <task-id> [--summary "description"] [--pr-url "url"] [--no-git] [--artifact <path>]
+#
+# Environment:
+#   LOVBROWSER_API_URL   — Backend API base URL (e.g., https://lovbrowser.com/api; local debug may use localhost)
+#   LOVBROWSER_API_TOKEN — Bearer token for API authentication
+#
+
+set -euo pipefail
+
+# --- Argument parsing ---
+TASK_ID=""
+SUMMARY=""
+PR_URL=""
+NO_GIT=false
+ARTIFACT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --summary)
+      SUMMARY="$2"
+      shift 2
+      ;;
+    --pr-url)
+      PR_URL="$2"
+      shift 2
+      ;;
+    --no-git)
+      NO_GIT=true
+      shift
+      ;;
+    --artifact)
+      ARTIFACT="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: lovtask-done <task-id> [--summary \"description\"] [--pr-url \"url\"] [--no-git] [--artifact <path>]"
+      echo ""
+      echo "Auto-detects git branch and commit unless --no-git is used, calls the complete API."
+      echo ""
+      echo "Environment:"
+      echo "  LOVBROWSER_API_URL   Backend API base URL"
+      echo "  LOVBROWSER_API_TOKEN Bearer token for API auth"
+      exit 0
+      ;;
+    *)
+      if [[ -z "$TASK_ID" ]]; then
+        TASK_ID="$1"
+      else
+        echo "Error: unexpected argument '$1'" >&2
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$TASK_ID" ]]; then
+  echo "Error: task ID is required" >&2
+  echo "Usage: lovtask-done <task-id> [--summary \"description\"] [--pr-url \"url\"] [--no-git] [--artifact <path>]" >&2
+  exit 1
+fi
+
+# --- Environment validation ---
+if [[ -z "${LOVBROWSER_API_URL:-}" ]]; then
+  echo "Error: LOVBROWSER_API_URL environment variable is not set" >&2
+  exit 1
+fi
+
+if [[ -z "${LOVBROWSER_API_TOKEN:-}" ]]; then
+  echo "Error: LOVBROWSER_API_TOKEN environment variable is not set" >&2
+  exit 1
+fi
+
+# --- Git auto-detection ---
+json_escape() {
+  local value="${1-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  value="${value//$'\f'/\\f}"
+  value="${value//$'\b'/\\b}"
+  printf '%s' "$value"
+}
+
+BRANCH_NAME=""
+COMMIT_ID=""
+
+if [[ "$NO_GIT" != true ]]; then
+  if ! command -v git &>/dev/null; then
+    echo "Error: git is not installed" >&2
+    exit 1
+  fi
+
+  if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+    echo "Error: not inside a git repository" >&2
+    exit 1
+  fi
+
+  BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+  COMMIT_ID=$(git rev-parse --short HEAD)
+fi
+
+if [[ -z "$SUMMARY" ]]; then
+  if [[ "$NO_GIT" == true ]]; then
+    SUMMARY="任务完成，进入待验收"
+  else
+    SUMMARY=$(git log -1 --pretty=format:"%s")
+  fi
+fi
+
+if [[ -n "$ARTIFACT" ]]; then
+  SUMMARY="${SUMMARY}"$'\n'"Artifact: ${ARTIFACT}"
+fi
+
+echo "Task ID:    $TASK_ID"
+if [[ "$NO_GIT" != true ]]; then
+  echo "Branch:     $BRANCH_NAME"
+  echo "Commit:     $COMMIT_ID"
+fi
+echo "Summary:    $SUMMARY"
+[[ -n "$PR_URL" ]] && echo "PR URL:     $PR_URL"
+[[ -n "$ARTIFACT" ]] && echo "Artifact:   $ARTIFACT"
+
+FIELDS=()
+if [[ -n "$BRANCH_NAME" ]]; then
+  FIELDS+=("  \"branchName\": \"$(json_escape "$BRANCH_NAME")\"")
+fi
+if [[ -n "$COMMIT_ID" ]]; then
+  FIELDS+=("  \"commitId\": \"$(json_escape "$COMMIT_ID")\"")
+fi
+FIELDS+=("  \"summary\": \"$(json_escape "$SUMMARY")\"")
+if [[ -n "$PR_URL" ]]; then
+  FIELDS+=("  \"prUrl\": \"$(json_escape "$PR_URL")\"")
+fi
+
+JSON_BODY=$'{\n'
+for (( i=0; i<${#FIELDS[@]}; i++ )); do
+  JSON_BODY+="${FIELDS[i]}"
+  if (( i < ${#FIELDS[@]} - 1 )); then
+    JSON_BODY+=$',\n'
+  else
+    JSON_BODY+=$'\n'
+  fi
+done
+JSON_BODY+='}'
+
+# --- API call ---
+API_URL="${LOVBROWSER_API_URL%/}/v1/tooling/dev-tasks/${TASK_ID}/complete"
+
+echo ""
+echo "Calling: POST $API_URL"
+
+HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LOVBROWSER_API_TOKEN" \
+  -d "$JSON_BODY" \
+  "$API_URL" 2>&1) || {
+  echo "Error: failed to connect to API" >&2
+  exit 1
+}
+
+HTTP_BODY=$(printf '%s\n' "$HTTP_RESPONSE" | sed '$d')
+HTTP_CODE=$(printf '%s\n' "$HTTP_RESPONSE" | tail -n 1)
+
+if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+  echo "Task $TASK_ID completed successfully."
+  if [[ -n "$HTTP_BODY" ]]; then
+    echo "$HTTP_BODY"
+  fi
+else
+  echo "Error: API returned HTTP $HTTP_CODE" >&2
+  if [[ -n "$HTTP_BODY" ]]; then
+    echo "$HTTP_BODY" >&2
+  fi
+  exit 1
+fi

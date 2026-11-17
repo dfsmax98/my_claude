@@ -1,0 +1,8 @@
+﻿feature_name,feature_desc,feature_type,time_window
+contact_total_cnt,通讯录联系人总数,int,365d
+contact_recent_7d_cnt,近7天新增联系人,int,7d
+contact_recent_30d_cnt,近30天新增联系人,int,30d
+immediate_contact_cnt,紧急联系人数量,int,365d
+contact_add_ratio_7d_30d,近7天/30天新增占比(突增检测),int,7d
+contact_sudden_add_flag,通讯录突增标识,composite,-
+contact_active_flag,活跃通讯录标识(近30天有新增),composite,-

@@ -8,7 +8,24 @@ Skill 是 Claude Code 的扩展功能，类似于插件，可以增强 Claude �
 
 ## 已安装的 Skill
 
-当前尚未安装任何 Skill。您可以按照以下步骤安装 Skill。
+| Skill | 来源 | 用途 |
+|-------|------|------|
+| **skill-creator** | anthropics/skills | 创建/编辑/优化 Skill，跑 eval 测试与 benchmark |
+| **guanvis** | 本地（观远 BI 专项） | 生成观远 BI / Guandata 的 Card、筛选器、Page 并发布 |
+| **sample-feature-join-sql** | 本地（反欺诈专项） | 样本表 × 特征宽表关联聚合 SQL 生成 |
+| **guizang-ppt** | guizang | 横向翻页网页 PPT（单 HTML，含 WebGL 背景）|
+| **huashu-design** | 花叔Design（MIT） | HTML 高保真原型、幻灯片、动画、可视化 |
+| **ppt-master** | hugohe3/ppt-master（AGPL-3.0） | PPTX ⇄ SVG 转换、图像生成、配音等 PPT 全流程 |
+| **cosyncing** | 本地 | 把生成的文件/产物投递到手机端 |
+| **lov-model** | 本地 | 会话内快速切换模型的清单助手 |
+| **lovbrowser-bridge** / **lovskills** / **lovtask** | 本地（LovBrowser） | LovBrowser 浏览器桥接 / 控制面 / DevTask |
+| **reverse-engineer-anything** | 本地 | 逆向分析各类目标的方法论 |
+| **lgbm-modeling-cn** | 本地 | 基于 LightGBM 的中文二分类风控建模全流程 |
+
+> 这些是 `~/.claude/skills/` 下生效的 Skill 副本，本目录作备份 / 版本管理。
+> 公司内部业务知识库、含客户 PII 的探查结果、真人音频/声纹数据均未上传。
+
+_最后同步：2026-11-16_
 
 ## 如何安装 Skill？
 

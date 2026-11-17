@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#
+# lovskills — Unified CLI dispatcher for LovBrowser AI capabilities
+#
+# Usage:
+#   lovskills <command> [args...]
+#   lovskills image "prompt" [--model ...]
+#   lovskills video "prompt" [--model ...] [--wait]
+#   lovskills audio "prompt"    # reserved; fails closed until LovSkills-native endpoint exists
+#   lovskills search "query"    # reserved; fails closed until LovSkills-native endpoint exists
+#   lovskills scrape "url"      # reserved; fails closed until LovSkills-native endpoint exists
+#   lovskills task <subcommand> [args...]
+#   lovskills login
+#   lovskills doctor
+#   lovskills points balance [--json]
+#   lovskills balance usd [--detail|--json]
+#   lovskills tokens list [--out ~/Downloads/lovskills/key.txt]
+#   lovskills chat accounts|launch
+#   lovskills setup codex|claude
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+print_usage() {
+  cat <<'EOF'
+Usage: lovskills <command> [args...]
+
+Commands:
+  login    Grant local LovSkills access through LovBrowser desktop
+  doctor   Check local LovBrowser and LovSkills authorization
+  points   Read current user's points balance
+  balance  Read current user's Lov API USD balance
+  tokens   Export current user's Lov API token keys to a local file
+  chat     List AI chat accounts or launch a chat window
+  setup    Initialize Codex or Claude with a Lov API token
+  image    Generate images through local LovBrowser authorization
+  video    Generate videos through local LovBrowser authorization
+  audio    Reserved; disabled until LovSkills-native audio exists
+  search   Reserved; disabled until LovSkills-native search exists
+  scrape   Reserved; disabled until LovSkills-native scrape exists
+  task     Manage DevTasks (pull/start/done/claim)
+
+Run 'lovskills <command> --help' for command-specific help.
+
+Environment:
+  LOVSKILLS_LOCAL_URL    LovSkills local URL (default http://127.0.0.1:18007)
+  LOVSKILLS_AUTH_FILE    Scoped lovskills auth file
+EOF
+}
+
+fail_closed() {
+  cat >&2 <<EOF
+Error: 'lovskills $1' is intentionally disabled in isolated LovSkills.
+LovSkills no longer routes commands through Browser Bridge or OpenAI-compatible /v1 reverse-browser endpoints.
+Add a LovSkills-native /api/lovskills endpoint before enabling this command here.
+EOF
+  exit 2
+}
+
+if [[ $# -eq 0 ]]; then
+  print_usage
+  exit 1
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+  login|doctor|points|balance|tokens|chat|setup|image|video)
+    exec "$SCRIPT_DIR/lovskills-control" "$COMMAND" "$@"
+    ;;
+  audio|search|scrape)
+    fail_closed "$COMMAND"
+    ;;
+  task)
+    exec "$SCRIPT_DIR/lovskills-task" "$@"
+    ;;
+  -h|--help)
+    print_usage
+    exit 0
+    ;;
+  *)
+    echo "Error: unknown command '$COMMAND'" >&2
+    print_usage >&2
+    exit 1
+    ;;
+esac

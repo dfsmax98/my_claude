@@ -1,0 +1,105 @@
+﻿feature_group: contact_risk
+stage: preloan
+output_table: d_dq.dfs_contact_risk_features_20260708
+
+sample_table:
+  preloan: d_dq.dfs_dq_fqz_base_final
+  inloan: d_dq.dfs_dz_fqz_base_final
+  primary_keys:
+    preloan: [cust_no, apply_no]
+    inloan: [cust_no, order_no, trans_seqno, rsk_log_id]
+  time_field:
+    preloan: close_datetime
+    inloan: create_datetime
+  target_fields: [fpd_k30, if_out_30d, if_out_60d, if_in_30d, if_in_60d]
+  partition_field: dt
+
+database:
+  account: model_py
+
+data_sources:
+  - name: contacts
+    table: default.t_bd_cust_relation_info
+    join_field: cust_no
+    time_field: create_time
+    partition_field: dt
+    filters:
+      - "contact_phone IS NOT NULL"
+      - "contact_phone != ''"
+
+features:
+  - name: contact_total_cnt
+    desc: "通讯录联系人总数"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 365d
+  
+  - name: contact_family_cnt
+    desc: "家庭关系联系人数量"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    condition: "relation_type = 'family'"
+    window: 365d
+  
+  - name: contact_friend_cnt
+    desc: "朋友关系联系人数量"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    condition: "relation_type = 'friend'"
+    window: 365d
+  
+  - name: black_contact_cnt
+    desc: "黑名单联系人数量"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    condition: "is_blacklist = 1"
+    window: 365d
+  
+  - name: overdue_contact_cnt
+    desc: "逾期联系人数量"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    condition: "is_overdue = 1"
+    window: 365d
+  
+  - name: complaint_contact_cnt
+    desc: "投诉联系人数量"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    condition: "is_complaint = 1"
+    window: 365d
+  
+  - name: contact_recent_7d_cnt
+    desc: "近7天新增联系人"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 7d
+  
+  - name: contact_recent_30d_cnt
+    desc: "近30天新增联系人"
+    source: contacts
+    agg: COUNT_DISTINCT
+    field: contact_phone
+    window: 30d
+  
+  - name: contact_risk_ratio
+    desc: "风险联系人占比"
+    type: composite
+    logic: "CASE WHEN contact_total_cnt > 0 THEN CAST(black_contact_cnt + overdue_contact_cnt AS DECIMAL(10,4)) / contact_total_cnt ELSE 0 END"
+  
+  - name: high_risk_contact_flag
+    desc: "高风险联系人标识"
+    type: composite
+    logic: "CASE WHEN COALESCE(black_contact_cnt,0) > 0 OR COALESCE(overdue_contact_cnt,0) > 5 THEN 1 ELSE 0 END"
+
+execution:
+  drop_first: true
+  verify: true
+  sample_limit: 20

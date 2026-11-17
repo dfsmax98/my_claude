@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, initial-scale=1">
+<title>声纹反欺诈工作台 · 项目框架</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#141b31; --panel2:#1b2440;
+    --line:#2a3557; --ink:#eef2fb; --sub:#9fb0d6;
+    --accent:#4f8cff; --accent2:#38d9a9; --warn:#ffb454; --danger:#ff6b6b;
+    --chip:#22304f;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{background:var(--bg); color:var(--ink);
+    font-family:"Microsoft YaHei","微软雅黑",system-ui,sans-serif; -webkit-font-smoothing:antialiased}
+  .stage{width:1280px; min-height:720px; margin:0 auto; padding:26px 48px 20px;
+    display:flex; flex-direction:column; gap:16px}
+  header{display:flex; align-items:flex-end; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:12px}
+  h1{font-size:32px; letter-spacing:1px}
+  h1 .dot{color:var(--accent)}
+  .subtitle{color:var(--sub); font-size:15px; margin-top:8px}
+  .stats{display:flex; gap:26px}
+  .stat{text-align:right}
+  .stat b{display:block; font-size:26px; color:var(--accent2)}
+  .stat span{font-size:12px; color:var(--sub)}
+
+  /* pipeline */
+  .flow-title{font-size:15px; color:var(--sub); letter-spacing:2px}
+  .pipeline{display:flex; align-items:stretch; gap:0}
+  .node{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:16px 14px; display:flex; flex-direction:column; gap:8px; position:relative}
+  .node .ic{font-size:24px}
+  .node .t{font-size:16px; font-weight:700}
+  .node .d{font-size:12px; color:var(--sub); line-height:1.5}
+  .arrow{display:flex; align-items:center; justify-content:center; width:34px; color:var(--accent); font-size:22px; flex:0 0 34px}
+  .split{display:flex; flex-direction:column; gap:10px; flex:1.25}
+  .split .node{flex:1}
+  .node.hot{border-color:var(--accent)}
+  .node.blk{border-color:#3a2b46}
+  .tag{position:absolute; top:-10px; right:12px; font-size:11px; padding:2px 8px; border-radius:10px; background:var(--chip); color:var(--sub)}
+
+  /* capabilities */
+  .cap-title{font-size:15px; color:var(--sub); letter-spacing:2px; margin-top:4px}
+  .caps{display:grid; grid-template-columns:repeat(4,1fr); gap:16px}
+  .cap{background:linear-gradient(160deg,var(--panel2),var(--panel)); border:1px solid var(--line);
+    border-radius:14px; padding:18px 16px; display:flex; flex-direction:column; gap:10px}
+  .cap .num{font-size:13px; color:var(--accent); font-weight:700; letter-spacing:1px}
+  .cap .h{font-size:17px; font-weight:700}
+  .cap .p{font-size:12.5px; color:var(--sub); line-height:1.6}
+  .cap .kv{font-size:11.5px; color:var(--accent2)}
+
+  footer{margin-top:auto; display:flex; justify-content:space-between; align-items:center;
+    border-top:1px solid var(--line); padding-top:14px; color:var(--sub); font-size:12px}
+  .stack{display:flex; gap:8px; flex-wrap:wrap}
+  .stack span{background:var(--chip); border:1px solid var(--line); border-radius:8px; padding:3px 10px}
+  .safe{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <header>
+    <div>
+      <h1>声纹反欺诈工作台<span class="dot">.</span></h1>
+      <div class="subtitle">面向电话催收场景 · 从一通录音到风险结论的自动化、可审计流水线</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>473</b><span>客户声纹档案</span></div>
+      <div class="stat"><b>20</b><span>黑产声纹身份</span></div>
+      <div class="stat"><b>全程留痕</b><span>可复核 · 可追溯</span></div>
+    </div>
+  </header>
+
+  <div>
+    <div class="flow-title">核心数据流</div>
+  </div>
+  <div class="pipeline">
+    <div class="node">
+      <div class="ic">📞</div>
+      <div class="t">来电录音</div>
+      <div class="d">双声道电话录音<br>坐席 + 客户</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node hot">
+      <div class="tag">功能一</div>
+      <div class="ic">🎚️</div>
+      <div class="t">分轨判角</div>
+      <div class="d">转写文字<br>自动分出客服 / 客户声道</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <div class="ic">🔊</div>
+      <div class="t">声纹提取</div>
+      <div class="d">对客户声道<br>提取声纹特征</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="split">
+      <div class="node hot">
+        <div class="tag">功能二</div>
+        <div class="ic">🪪</div>
+        <div class="t">1:1 客户自核</div>
+        <div class="d">与本人历史档案比对 → 确认本人 / 转复核</div>
+      </div>
+      <div class="node blk">
+        <div class="tag">功能二</div>
+        <div class="ic">🚫</div>
+        <div class="t">1:N 黑产比对</div>
+        <div class="d">与黑产库全量比对 → 命中 / 灰区复核 / 未命中</div>
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <div class="ic">📋</div>
+      <div class="t">结论 & 复核</div>
+      <div class="d">结论落库<br>灰区自动转人工</div>
+    </div>
+  </div>
+
+  <div class="cap-title">四项核心能力</div>
+  <div class="caps">
+    <div class="cap">
+      <div class="num">01</div>
+      <div class="h">录音角色识别</div>
+      <div class="p">双声道录音自动转写、分轨，判断客服与客户各在哪一声道，为声纹提取打好地基。</div>
+      <div class="kv">双轨分栏 · 角色置信</div>
+    </div>
+    <div class="cap">
+      <div class="num">02</div>
+      <div class="h">客户声纹库</div>
+      <div class="p">为客户建声纹档案，新录音进来做 1:1 自核，确认"还是不是本人"，通过即滚动更新档案。</div>
+      <div class="kv">473 个客户档案</div>
+    </div>
+    <div class="cap">
+      <div class="num">03</div>
+      <div class="h">黑产声纹库</div>
+      <div class="p">把新录音与黑产名单逐一 1:N 比对，超阈值命中标红，接近阈值自动转人工复核。</div>
+      <div class="kv">20 个黑产身份</div>
+    </div>
+    <div class="cap">
+      <div class="num">04</div>
+      <div class="h">团伙声纹簇</div>
+      <div class="p">对全量客户做 N:N 聚类，发现"同一个人换多套身份"的影子团伙，常态化滚动监控。</div>
+      <div class="kv">N:N 影子关联</div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="stack">
+      <span>技术底座</span>
+      <span>语音转写 + 分轨</span>
+      <span>声纹特征提取</span>
+      <span>1:1 / 1:N / N:N 比对</span>
+    </div>
+    <div class="safe">🔒 全程脱敏演示 · 平台仅本机访问</div>
+  </footer>
+
+</div>
+</body>
+</html>
